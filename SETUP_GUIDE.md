@@ -12,11 +12,29 @@ Everything you need to get all 5 extensions working, tested, secured, and making
 
 **What still needs to be done:**
 - Deploy the new monorepo backend to Railway
-- Update Supabase schema for multi-extension usage tracking
+- Update Supabase schema for multi-extension usage tracking + per-extension plans
 - Test all 5 extensions locally
 - Publish extensions to Chrome Web Store
+- Create 6 Stripe products (5 individual + 1 bundle)
 - Switch Stripe to live mode
 - Set Anthropic API spending limits
+
+---
+
+## PRICING MODEL
+
+| Plan | Price | What it unlocks |
+|------|-------|-----------------|
+| Free | $0 | 3 generations/day per extension (YouTube gets 5/day) |
+| Individual Pro | $3.99/mo each | Unlimited for that one extension only |
+| Bundle Pro | $14.99/mo | Unlimited across all 5 extensions |
+
+**How the plan field works in the database:**
+- `"free"` — no paid subscriptions
+- `"pro"` — bundle subscriber, everything unlocked
+- `"linkedin"` — only LinkedIn Pro purchased
+- `"linkedin,youtube"` — two individual extensions purchased (comma-separated)
+- If a user buys all 5 individually, it auto-upgrades to `"pro"`
 
 ---
 
@@ -54,8 +72,9 @@ The backend already has these protections:
 - ✅ Stripe webhook signature verification
 - ✅ Docs/Swagger UI disabled in production
 - ✅ Rate limiting: 60 requests/minute per IP
-- ✅ Daily generation caps even on "unlimited" extensions (anti-abuse)
+- ✅ Daily generation caps on all extensions (3/day free, including Shopping)
 - ✅ max_tokens capped on all Claude API calls (prevents runaway costs)
+- ✅ Per-extension Pro checks (buying LinkedIn Pro doesn't unlock YouTube)
 
 ### 1c. Things to NEVER do
 - NEVER commit `.env` files or API keys to GitHub
@@ -67,7 +86,7 @@ The backend already has these protections:
 
 ## PHASE 2: UPDATE SUPABASE SCHEMA
 
-Your existing Supabase `usage` table needs an `extension` column for multi-extension tracking.
+Your existing Supabase tables need updates for multi-extension usage tracking and per-extension plans.
 
 ### 2a. Run Schema Migration
 1. Go to **Supabase** → **SQL Editor**
@@ -80,9 +99,13 @@ ALTER TABLE public.usage ADD COLUMN IF NOT EXISTS extension text NOT NULL DEFAUL
 -- Drop old unique constraint and add new one
 ALTER TABLE public.usage DROP CONSTRAINT IF EXISTS usage_user_id_date_key;
 ALTER TABLE public.usage ADD CONSTRAINT usage_user_id_date_extension_key UNIQUE (user_id, date, extension);
+
+-- Remove old plan CHECK constraint so plan can store comma-separated extension names
+ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_plan_check;
 ```
 
 3. Verify: go to **Table Editor** → **usage** — you should see the new `extension` column
+4. Verify: go to **Table Editor** → **users** — the `plan` column should accept any text value now
 
 ---
 
@@ -105,17 +128,25 @@ You have two options: update the existing Railway project or create a new one.
 ### 3a. Verify Environment Variables
 Go to Railway → Variables and make sure ALL of these are set:
 
-| Variable | Value |
-|----------|-------|
-| `ANTHROPIC_API_KEY` | `sk-ant-...` |
-| `SUPABASE_URL` | `https://your-project.supabase.co` |
-| `SUPABASE_SERVICE_KEY` | `eyJhbGci...` (long key) |
-| `STRIPE_SECRET_KEY` | `sk_test_...` (test for now, live later) |
-| `STRIPE_WEBHOOK_SECRET` | `whsec_...` |
-| `STRIPE_PRICE_ID` | `price_...` |
-| `STRIPE_SUCCESS_URL` | `https://linkedin-post-generator-landing.bolt.host` |
-| `STRIPE_CANCEL_URL` | `https://linkedin-post-generator-landing.bolt.host` |
-| `ALLOWED_ORIGINS` | See 3b below |
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `ANTHROPIC_API_KEY` | `sk-ant-...` | |
+| `SUPABASE_URL` | `https://your-project.supabase.co` | |
+| `SUPABASE_SERVICE_KEY` | `eyJhbGci...` (long key) | |
+| `STRIPE_SECRET_KEY` | `sk_test_...` (test for now, live later) | |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_...` | |
+| `STRIPE_PRICE_ID` | `price_...` | Legacy fallback, optional if individual prices set |
+| `STRIPE_PRICE_LINKEDIN` | `price_...` | Stripe price for LinkedIn Pro ($3.99/mo) |
+| `STRIPE_PRICE_YOUTUBE` | `price_...` | Stripe price for YouTube Pro ($3.99/mo) |
+| `STRIPE_PRICE_GMAIL` | `price_...` | Stripe price for Gmail Pro ($3.99/mo) |
+| `STRIPE_PRICE_JOBS` | `price_...` | Stripe price for Job Search Pro ($3.99/mo) |
+| `STRIPE_PRICE_REVIEWS` | `price_...` | Stripe price for Shopping Pro ($3.99/mo) |
+| `STRIPE_PRICE_BUNDLE` | `price_...` | Stripe price for Bundle Pro ($14.99/mo) |
+| `STRIPE_SUCCESS_URL` | `https://your-landing-page.com` | Where users go after payment |
+| `STRIPE_CANCEL_URL` | `https://your-landing-page.com` | Where users go if they cancel |
+| `ALLOWED_ORIGINS` | See 3b below | |
+
+**Note:** You don't need all 6 Stripe prices right away. The backend falls back to `STRIPE_PRICE_ID` if an individual price isn't set. Set them up properly in Phase 6 when you switch to live mode.
 
 ### 3b. Set ALLOWED_ORIGINS
 This is a comma-separated list of extension IDs. For now, you only have the LinkedIn extension ID. As you publish more extensions, add their IDs here.
@@ -152,6 +183,7 @@ curl -X POST https://YOUR-RAILWAY-URL/api/linkedin/generate \
 cd "C:\Users\bzcni\OneDrive\Desktop\vs code projects\brando-ai-tools\backend"
 python -m venv venv
 venv\Scripts\activate        # Windows
+
 pip install -r requirements.txt
 
 # Set environment variables (Windows PowerShell)
@@ -160,7 +192,12 @@ $env:SUPABASE_URL="https://your-project.supabase.co"
 $env:SUPABASE_SERVICE_KEY="your-service-key"
 $env:STRIPE_SECRET_KEY="sk_test_your-key"
 $env:STRIPE_WEBHOOK_SECRET="whsec_your-key"
-$env:STRIPE_PRICE_ID="price_your-id"
+$env:STRIPE_PRICE_LINKEDIN="price_your-linkedin-id"
+$env:STRIPE_PRICE_YOUTUBE="price_your-youtube-id"
+$env:STRIPE_PRICE_GMAIL="price_your-gmail-id"
+$env:STRIPE_PRICE_JOBS="price_your-jobs-id"
+$env:STRIPE_PRICE_REVIEWS="price_your-reviews-id"
+$env:STRIPE_PRICE_BUNDLE="price_your-bundle-id"
 $env:ALLOWED_ORIGINS="*"
 
 # Or Windows CMD:
@@ -169,6 +206,8 @@ set ANTHROPIC_API_KEY=sk-ant-your-key
 
 uvicorn main:app --reload --port 8000
 ```
+
+**Note:** For local testing, you can set `ALLOWED_ORIGINS=*` and use a single `STRIPE_PRICE_ID` for all extensions. The per-extension prices only matter in production.
 
 ### 4b. Load Extensions in Chrome
 1. Open `chrome://extensions`
@@ -186,7 +225,9 @@ uvicorn main:app --reload --port 8000
 2. Type a topic → Generate post
 3. Try Smart reply tab
 4. Verify usage badge counts down (3/3, 2/3, 1/3)
-5. Verify upgrade button opens Stripe checkout
+5. Verify "Upgrade LinkedIn Pro — $3.99/mo" button appears when limit hit
+6. Verify "Get all 5 Brando tools — $14.99/mo" bundle button appears too
+7. Verify upgrade button opens Stripe checkout
 
 **YouTube:**
 1. Go to any YouTube video
@@ -194,6 +235,7 @@ uvicorn main:app --reload --port 8000
 3. The video URL should auto-fill
 4. Click Summarize
 5. Verify you get a summary with TL;DR, takeaways, timestamps
+6. Verify usage badge and upgrade buttons work
 
 **Gmail:**
 1. Go to Gmail and compose a new email
@@ -210,12 +252,39 @@ uvicorn main:app --reload --port 8000
 5. Verify analysis output
 
 **Shopping:**
-1. Go to an Amazon product page
+1. Go to an Amazon product page with reviews
 2. Click the Brando for Shopping extension
 3. Click Summarize reviews
 4. Verify pros/cons/verdict output
+5. Verify usage badge shows 3/3 (not "FREE" or unlimited)
 
-### 4d. Common Issues & Fixes
+### 4d. Test the Upgrade Flow
+For each extension:
+1. Use up all 3 free generations
+2. Verify the upgrade prompt appears with TWO buttons:
+   - **"Upgrade [Extension] Pro — $3.99/mo"** (filled button, individual)
+   - **"Get all 5 Brando tools — $14.99/mo"** (outlined button, bundle)
+3. Click the individual button → verify Stripe checkout opens for that extension
+4. Click the bundle button → verify Stripe checkout opens for the bundle
+5. After paying, verify only the correct extension(s) unlock:
+   - Individual purchase: only that extension shows "Pro"
+   - Bundle purchase: all 5 extensions show "Pro"
+
+### 4e. Test Per-Extension Pro Logic
+1. Create a test user
+2. Purchase LinkedIn Pro only (via test mode)
+3. Verify:
+   - LinkedIn shows "Pro" badge and unlimited usage
+   - YouTube still shows "3/5 left" and upgrade prompt
+   - Gmail still shows "3/3 left" and upgrade prompt
+4. Now purchase YouTube Pro for the same user
+5. Verify:
+   - LinkedIn: still Pro
+   - YouTube: now Pro
+   - Gmail: still free
+6. The `plan` field in Supabase should now show `linkedin,youtube`
+
+### 4f. Common Issues & Fixes
 
 | Problem | Fix |
 |---------|-----|
@@ -226,6 +295,9 @@ uvicorn main:app --reload --port 8000
 | Gmail content script not showing | Refresh Gmail after loading the extension |
 | Extension icon not appearing | Click the puzzle piece icon in Chrome toolbar and pin it |
 | Import errors when starting uvicorn | Make sure you're in the `backend/` directory and venv is activated |
+| "Payment not configured for this extension" | Set the `STRIPE_PRICE_*` env var for that extension, or set `STRIPE_PRICE_ID` as fallback |
+| Upgrade button does nothing | Check browser console for errors. Make sure checkout endpoint gets `Content-Type: application/json` |
+| User has Pro but extension shows Free | The extension might be checking the wrong field. Check browser console for the `/auth/me` response — should have `pro_extensions.{ext}: true` |
 
 ---
 
@@ -238,7 +310,7 @@ uvicorn main:app --reload --port 8000
 ### 5b. Submission Order (recommended)
 1. **LinkedIn** — already drafted, submit as soon as verification clears
 2. **YouTube** — submit next (simple, high demand)
-3. **Shopping** — submit next (free = fastest growth, funnels to paid)
+3. **Shopping** — submit next (3 free/day, good funnel to paid)
 4. **Gmail** — submit after YouTube/Shopping are live
 5. **Job Search** — submit last (most complex)
 
@@ -303,7 +375,7 @@ Example for YouTube manifest.json:
 - Data usage: check "Personally identifiable information" and "Authentication information"
 - Check all 3 certification boxes
 - Distribution: Public, all regions
-- Payments: "Contains in-app purchases" (except Shopping — use "Free of charge")
+- Payments: "Contains in-app purchases" (all extensions now have paid upgrades)
 
 ### 5e. After Each Extension Is Approved
 1. Copy the extension ID from the CWS listing URL
@@ -312,46 +384,84 @@ Example for YouTube manifest.json:
 
 ---
 
-## PHASE 6: SWITCH STRIPE TO LIVE MODE
+## PHASE 6: SET UP STRIPE PRODUCTS (TEST MODE FIRST, THEN LIVE)
 
-Do this ONLY after at least the LinkedIn extension is live on the Chrome Web Store.
+### 6a. Create Test Products First
+While still in Stripe **Test mode**, create all 6 products to test the flow:
 
-### 6a. Create Live Product
+1. Go to Stripe → **Product catalog** → **Add product** (repeat 6 times):
+
+| Product Name | Price | Billing | Env Var |
+|-------------|-------|---------|---------|
+| Brando LinkedIn Pro | $3.99/month | Recurring | `STRIPE_PRICE_LINKEDIN` |
+| Brando YouTube Pro | $3.99/month | Recurring | `STRIPE_PRICE_YOUTUBE` |
+| Brando Gmail Pro | $3.99/month | Recurring | `STRIPE_PRICE_GMAIL` |
+| Brando Job Search Pro | $3.99/month | Recurring | `STRIPE_PRICE_JOBS` |
+| Brando Shopping Pro | $3.99/month | Recurring | `STRIPE_PRICE_REVIEWS` |
+| Brando Pro Bundle (All 5) | $14.99/month | Recurring | `STRIPE_PRICE_BUNDLE` |
+
+2. For each product, copy the `price_...` ID
+3. Set all 6 as env vars in Railway (or locally for testing)
+
+### 6b. Test Payment Flows in Test Mode
+Use Stripe's test card `4242 4242 4242 4242` (any future expiry, any CVC):
+
+1. **Test individual purchase:**
+   - Hit limit on LinkedIn → click "Upgrade LinkedIn Pro — $3.99/mo"
+   - Complete checkout with test card
+   - Verify webhook fires in Stripe → Developers → Webhooks → Recent deliveries
+   - Verify Supabase `users.plan` = `"linkedin"`
+   - Verify LinkedIn extension shows "Pro" badge
+   - Verify YouTube extension still shows free usage
+
+2. **Test bundle purchase:**
+   - From any extension, click "Get all 5 Brando tools — $14.99/mo"
+   - Complete checkout
+   - Verify Supabase `users.plan` = `"pro"`
+   - Verify ALL 5 extensions show "Pro" badge
+
+3. **Test cancellation:**
+   - Go to Stripe → Customers → find the test user → cancel subscription
+   - Verify the webhook fires
+   - Verify Supabase `users.plan` reverts to `"free"` (for bundle) or removes that extension (for individual)
+   - Verify the extension goes back to free with usage limits
+
+### 6c. Switch to Live Mode
+Do this ONLY after at least one extension is live on the Chrome Web Store:
+
 1. In Stripe, toggle **Live mode** ON (top-right switch)
-2. Go to **Product catalog** → **Add product**
-3. Create **6 products** in Stripe:
-   - `Brando LinkedIn Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_LINKEDIN`
-   - `Brando YouTube Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_YOUTUBE`
-   - `Brando Gmail Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_GMAIL`
-   - `Brando Job Search Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_JOBS`
-   - `Brando Shopping Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_REVIEWS`
-   - `Brando Pro Bundle (All 5)` → $14.99/month → copy price ID → set as `STRIPE_PRICE_BUNDLE`
-4. Set all 6 price IDs as env vars in Railway
+2. Repeat Step 6a — create the same 6 products in Live mode
+3. Create live webhook:
+   - Stripe → Developers → Webhooks → **Add endpoint**
+   - URL: `https://YOUR-RAILWAY-URL/webhook`
+   - Events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`
+   - Copy the signing secret (`whsec_...`)
+4. Get live API key: Stripe → Developers → API keys → copy `sk_live_...`
 
-### 6b. Create Live Webhook
-1. Stripe → Developers → Webhooks → **Add endpoint**
-2. URL: `https://YOUR-RAILWAY-URL/webhook`
-3. Events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`
-4. Copy the signing secret (`whsec_...`)
+### 6d. Update Railway Variables for Live Mode
+Update these variables in Railway:
 
-### 6c. Get Live API Key
-1. Stripe → Developers → API keys (in Live mode)
-2. Copy the secret key (`sk_live_...`)
-
-### 6d. Update Railway Variables
-Update these 3 variables in Railway:
-- `STRIPE_SECRET_KEY` → `sk_live_...`
-- `STRIPE_WEBHOOK_SECRET` → new live `whsec_...`
-- `STRIPE_PRICE_ID` → new live `price_...`
+| Variable | Old (test) | New (live) |
+|----------|-----------|------------|
+| `STRIPE_SECRET_KEY` | `sk_test_...` | `sk_live_...` |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_...` (test) | `whsec_...` (live) |
+| `STRIPE_PRICE_LINKEDIN` | `price_...` (test) | `price_...` (live) |
+| `STRIPE_PRICE_YOUTUBE` | `price_...` (test) | `price_...` (live) |
+| `STRIPE_PRICE_GMAIL` | `price_...` (test) | `price_...` (live) |
+| `STRIPE_PRICE_JOBS` | `price_...` (test) | `price_...` (live) |
+| `STRIPE_PRICE_REVIEWS` | `price_...` (test) | `price_...` (live) |
+| `STRIPE_PRICE_BUNDLE` | `price_...` (test) | `price_...` (live) |
 
 Railway auto-redeploys. Live payments are now active.
 
 ### 6e. Test a Real Payment
-1. Use a real card to subscribe to Pro
+1. Use a real card to subscribe to one extension's Pro ($3.99)
 2. Verify the webhook fires (Stripe → Developers → Webhooks → recent deliveries)
-3. Verify your Supabase `users` table shows `plan = "pro"`
+3. Verify Supabase `users.plan` shows the extension name (e.g. `"linkedin"`)
 4. Verify the extension shows "Pro"
-5. Cancel the subscription in Stripe and verify it goes back to "Free"
+5. Verify other extensions still show free
+6. Cancel the subscription and verify it goes back to `"free"`
+7. Refund yourself in Stripe
 
 ---
 
@@ -377,10 +487,20 @@ Railway auto-redeploys. Live payments are now active.
 - Free user: 3 generations/day × 30 days = 90 generations/month = **$0.09/month** per active free user
 - Single-extension Pro user at $3.99/month: even if they do 100 generations/day, that's $3/month in API costs = **$1/month profit**
 - Bundle Pro user at $14.99/month: even across all 5 tools, API costs stay under $5/month = **$10/month profit per bundle user**
-- You need **1 Pro user to cover your Railway costs** ($5/month)
-- At **650 Pro users**, you hit your $5,200/month goal
+- You need **1 bundle Pro user to cover your Railway costs** ($5/month)
+- At **150 bundle Pro users**, you're at $1,500/month profit
+- At **500 bundle Pro users**, you're at $5,000/month profit
 
-### 7e. Emergency: If Your API Costs Spike
+### 7e. Revenue Scenarios
+
+| Scenario | Individual Pro users | Bundle Pro users | Monthly Revenue | Monthly API Cost | Profit |
+|----------|---------------------|-----------------|-----------------|-----------------|--------|
+| Just starting | 10 | 2 | $69.88 | ~$5 | ~$60 |
+| Growing | 50 | 20 | $498.50 | ~$30 | ~$463 |
+| Sustainable | 100 | 100 | $1,898 | ~$100 | ~$1,793 |
+| Goal | 200 | 500 | $8,298 | ~$400 | ~$7,893 |
+
+### 7f. Emergency: If Your API Costs Spike
 1. Check Anthropic dashboard for unusual usage
 2. Check Railway logs for the source
 3. If needed: set `ALLOWED_ORIGINS` to just your verified extension IDs (blocks unauthorized callers)
@@ -392,37 +512,45 @@ Railway auto-redeploys. Live payments are now active.
 
 ### Before first extension goes live:
 - [ ] Anthropic spending limit set ($20/month)
-- [ ] Supabase schema updated with `extension` column
+- [ ] Supabase schema updated with `extension` column + plan constraint removed
 - [ ] New backend deployed to Railway
 - [ ] `/health` endpoint returns OK
 - [ ] Stripe webhook URL updated (if Railway URL changed)
-- [ ] All env vars set in Railway
+- [ ] All env vars set in Railway (including 6 Stripe price IDs)
 - [ ] `ALLOWED_ORIGINS` includes your extension IDs
 - [ ] Landing page rebranded to "Brando" on bolt.new
+- [ ] Landing page shows correct pricing ($3.99/mo individual, $14.99/mo bundle)
 - [ ] Privacy policy page accessible at /privacy
 
 ### For each extension before publishing:
 - [ ] `API_BASE` in popup.js changed to Railway URL
 - [ ] `host_permissions` in manifest.json includes Railway URL
-- [ ] Extension tested locally (auth, generate, upgrade)
+- [ ] Extension tested locally (auth, generate, usage limits, both upgrade buttons)
+- [ ] Verified individual Pro button opens checkout for that extension only
+- [ ] Verified bundle button opens checkout for the bundle
 - [ ] Custom icons created (16, 48, 128 px)
 - [ ] Screenshots taken (1280x800 or 640x400)
 - [ ] Extension zipped (manifest.json at zip root)
 - [ ] CWS listing filled out (description, privacy, permissions)
 - [ ] Test account created for CWS reviewer
+- [ ] Payments marked as "Contains in-app purchases"
 
 ### After each extension is approved:
 - [ ] Extension ID added to `ALLOWED_ORIGINS` in Railway
-- [ ] Cross-promotion links updated in other extensions
+- [ ] Cross-promotion links updated in other extensions with real CWS URLs
 - [ ] Landing page updated with CWS install link
 
 ### Before going live with real payments:
+- [ ] All 6 Stripe test products created and tested
+- [ ] Individual purchase tested (correct extension unlocked, others stay free)
+- [ ] Bundle purchase tested (all extensions unlocked)
+- [ ] Cancellation tested (correct extension removed, or all removed for bundle)
 - [ ] Stripe switched to Live mode
-- [ ] New product created in Live mode
-- [ ] New webhook created in Live mode
-- [ ] 3 Railway vars updated (key, webhook secret, price ID)
+- [ ] All 6 live products created with correct prices
+- [ ] Live webhook created with correct URL and events
+- [ ] All Stripe env vars updated in Railway with live values
 - [ ] Real payment tested end-to-end
-- [ ] Cancellation tested end-to-end
+- [ ] Real cancellation tested end-to-end
 
 ---
 
@@ -430,12 +558,70 @@ Railway auto-redeploys. Live payments are now active.
 
 In order:
 1. **Set Anthropic spending limit** → console.anthropic.com → $20/month
-2. **Run Supabase migration** → add `extension` column to usage table
-3. **Deploy new backend** → update Railway to use brando-ai-tools repo
-4. **Test LinkedIn extension** → verify it still works with new backend (API path is now `/api/linkedin/generate` instead of `/generate`)
-5. **Rebrand landing page** → paste the Bolt AI prompt
-6. **Wait for CWS verification** → then submit LinkedIn extension
-7. **Test YouTube extension locally** → then submit to CWS
-8. **Continue down the list** → Gmail, Jobs, Shopping
-9. **Switch Stripe to live** → after first extension is approved
-10. **Start making money**
+2. **Run Supabase migration** → add `extension` column + remove plan constraint
+3. **Create 6 Stripe test products** → 5 individual ($3.99) + 1 bundle ($14.99)
+4. **Deploy new backend** → update Railway to use brando-ai-tools repo, set all env vars
+5. **Test LinkedIn extension** → verify it works with new backend, test both upgrade buttons
+6. **Test all other extensions locally** → YouTube, Gmail, Jobs, Shopping
+7. **Test payment flows** → individual purchase, bundle purchase, cancellation
+8. **Rebrand landing page** → paste the Bolt AI prompt (show $3.99/mo + $14.99/mo pricing)
+9. **Wait for CWS verification** → then submit LinkedIn extension
+10. **Submit remaining extensions** → YouTube, Shopping, Gmail, Jobs
+11. **Switch Stripe to live** → after first extension is approved
+12. **Start making money**
+
+---
+
+## QUICK REFERENCE: STRIPE ENV VARS
+
+```
+STRIPE_SECRET_KEY=sk_test_xxx        # or sk_live_xxx in production
+STRIPE_WEBHOOK_SECRET=whsec_xxx
+STRIPE_PRICE_LINKEDIN=price_xxx      # $3.99/mo individual
+STRIPE_PRICE_YOUTUBE=price_xxx       # $3.99/mo individual
+STRIPE_PRICE_GMAIL=price_xxx         # $3.99/mo individual
+STRIPE_PRICE_JOBS=price_xxx          # $3.99/mo individual
+STRIPE_PRICE_REVIEWS=price_xxx       # $3.99/mo individual
+STRIPE_PRICE_BUNDLE=price_xxx        # $14.99/mo all 5
+STRIPE_PRICE_ID=price_xxx            # legacy fallback (optional)
+```
+
+---
+
+## QUICK REFERENCE: HOW THE PAYMENT FLOW WORKS
+
+```
+User clicks "Upgrade LinkedIn Pro — $3.99/mo"
+  → Extension sends POST /create-checkout-session { extension: "linkedin" }
+  → Backend looks up STRIPE_PRICE_LINKEDIN env var
+  → Creates Stripe checkout session with metadata: { user_id, extension: "linkedin" }
+  → User completes payment on Stripe
+
+Stripe fires webhook → POST /webhook
+  → Event: checkout.session.completed
+  → Backend reads metadata.extension = "linkedin"
+  → Updates users.plan from "free" to "linkedin"
+  → Extension checks /auth/me → pro_extensions.linkedin = true → shows "Pro"
+
+User clicks "Get all 5 Brando tools — $14.99/mo"
+  → Same flow but extension = "bundle"
+  → Backend sets users.plan = "pro"
+  → All extensions see pro_extensions.* = true → all show "Pro"
+
+User who already has "linkedin" buys "youtube":
+  → Backend merges: plan = "linkedin,youtube"
+  → LinkedIn and YouTube show Pro, others stay free
+
+User who already has 4 extensions buys the 5th:
+  → Backend auto-upgrades: plan = "pro" (full bundle equivalent)
+
+User cancels LinkedIn subscription:
+  → Webhook fires with subscription.deleted
+  → Backend removes "linkedin" from plan
+  → plan goes from "linkedin,youtube" to "youtube"
+  → LinkedIn goes back to free, YouTube stays Pro
+
+User cancels bundle:
+  → Backend sets plan = "free"
+  → All extensions go back to free
+```
