@@ -1,0 +1,7 @@
+.brando-analyze-btn {
+  display: inline-flex; align-items: center; padding: 6px 16px;
+  margin: 8px 0; border: 1px solid #0a66c2; border-radius: 16px;
+  background: transparent; color: #0a66c2; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.brando-analyze-btn:hover { background: #0a66c2; color: #fff; }

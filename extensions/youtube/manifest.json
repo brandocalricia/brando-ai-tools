@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Brando for YouTube",
+  "version": "1.0.0",
+  "description": "Summarize any YouTube video in seconds. Get key takeaways, timestamps, and a TL;DR.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "background": { "service_worker": "background/service-worker.js" },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

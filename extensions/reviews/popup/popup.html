@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brando for Shopping</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Auth Screen -->
+    <div id="auth-screen">
+      <div class="auth-header">
+        <h1>Brando</h1>
+        <p class="auth-subtitle">AI-powered product review summaries</p>
+        <p class="auth-free-badge">Free forever — no credit card needed</p>
+      </div>
+
+      <div id="auth-error" class="error hidden"></div>
+
+      <div id="login-form">
+        <label for="auth-email">Email</label>
+        <input type="email" id="auth-email" placeholder="you@example.com">
+        <label for="auth-password">Password</label>
+        <input type="password" id="auth-password" placeholder="Min 6 characters">
+        <button id="login-btn" class="btn-primary">Log in</button>
+        <button id="signup-btn" class="btn-secondary">Create free account</button>
+      </div>
+    </div>
+
+    <!-- Main App (hidden until logged in) -->
+    <div id="main-app" class="hidden">
+      <div class="header">
+        <h1>Brando <span class="header-sub">Shopping</span></h1>
+        <div class="header-right">
+          <div class="free-badge">FREE</div>
+          <button id="logout-btn" class="btn-logout" title="Log out">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="product-info" class="product-info hidden">
+        <span id="product-site" class="product-site"></span>
+        <span id="product-name" class="product-name"></span>
+      </div>
+
+      <div id="no-product" class="no-product hidden">
+        <p>Navigate to a product page on Amazon, Best Buy, or Walmart to get started.</p>
+      </div>
+
+      <button id="summarize-btn" class="btn-primary">Summarize reviews</button>
+
+      <div id="output-area" class="output-area hidden">
+        <div class="output-header">
+          <span class="output-label">Review Summary</span>
+          <div class="output-actions">
+            <button id="copy-btn" class="btn-icon" title="Copy to clipboard">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+            <button id="regen-btn" class="btn-icon" title="Refresh summary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="verdict-bar" class="verdict-bar hidden">
+          <span id="verdict-label" class="verdict-label"></span>
+        </div>
+
+        <div class="summary-sections">
+          <div id="pros-section" class="summary-section hidden">
+            <div class="section-title pros-title">Pros</div>
+            <ul id="pros-list" class="summary-list"></ul>
+          </div>
+          <div id="cons-section" class="summary-section hidden">
+            <div class="section-title cons-title">Cons</div>
+            <ul id="cons-list" class="summary-list"></ul>
+          </div>
+        </div>
+
+        <div id="output-text" class="output-text"></div>
+      </div>
+
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <span>Analyzing reviews...</span>
+      </div>
+
+      <div id="error" class="error hidden"></div>
+
+      <div class="footer">
+        <span id="user-email" class="user-email"></span>
+        <span class="plan-label free">Free forever</span>
+      </div>
+
+      <div class="brando-more">
+        <span>More AI tools by Brando</span>
+        <div class="brando-links">
+          <a href="#">YouTube</a>
+          <a href="#">Gmail</a>
+          <a href="#">LinkedIn</a>
+          <a href="#">Job Search</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="toast"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

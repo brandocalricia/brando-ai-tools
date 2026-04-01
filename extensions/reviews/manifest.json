@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Brando for Shopping",
+  "version": "1.0.0",
+  "description": "AI-powered review summaries for any product. See pros, cons, and a buy/skip verdict in seconds.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["https://www.amazon.com/*", "https://www.bestbuy.com/*", "https://www.walmart.com/*"],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "content_scripts": [{ "matches": ["https://www.amazon.com/*", "https://www.bestbuy.com/*", "https://www.walmart.com/*"], "js": ["content/content.js"], "css": ["content/content.css"] }],
+  "background": { "service_worker": "background/service-worker.js" },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

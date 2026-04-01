@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+anthropic
+pydantic
+gotrue
+httpx
+stripe
+youtube-transcript-api
+beautifulsoup4

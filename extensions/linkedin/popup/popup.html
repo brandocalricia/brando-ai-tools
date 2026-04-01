@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brando for LinkedIn</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Auth Screen -->
+    <div id="auth-screen">
+      <div class="auth-header">
+        <h1>Brando</h1>
+        <p class="auth-subtitle">AI-powered LinkedIn posts & replies</p>
+      </div>
+
+      <div id="auth-error" class="error hidden"></div>
+
+      <div id="login-form">
+        <label for="auth-email">Email</label>
+        <input type="email" id="auth-email" placeholder="you@example.com">
+        <label for="auth-password">Password</label>
+        <input type="password" id="auth-password" placeholder="Min 6 characters">
+        <button id="login-btn" class="btn-primary">Log in</button>
+        <button id="signup-btn" class="btn-secondary">Create account</button>
+      </div>
+    </div>
+
+    <!-- Main App (hidden until logged in) -->
+    <div id="main-app" class="hidden">
+      <div class="header">
+        <h1>Brando <span class="header-sub">LinkedIn</span></h1>
+        <div class="header-right">
+          <div id="usage-badge" class="usage-badge">3/3 left</div>
+          <button id="logout-btn" class="btn-logout" title="Log out">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-mode="post">New post</button>
+        <button class="tab" data-mode="reply">Smart reply</button>
+      </div>
+
+      <div id="post-mode" class="mode-panel active">
+        <label for="topic">What do you want to post about?</label>
+        <textarea id="topic" placeholder="e.g. Why most people overthink their first startup..." rows="3"></textarea>
+        <div class="row">
+          <div class="field">
+            <label for="tone">Tone</label>
+            <select id="tone">
+              <option value="thought-leader">Thought leader</option>
+              <option value="casual">Casual</option>
+              <option value="storytelling">Storytelling</option>
+              <option value="contrarian">Contrarian</option>
+              <option value="educational">Educational</option>
+              <option value="motivational">Motivational</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="length">Length</label>
+            <select id="length">
+              <option value="short">Short (~50 words)</option>
+              <option value="medium" selected>Medium (~120 words)</option>
+              <option value="long">Long (~200 words)</option>
+            </select>
+          </div>
+        </div>
+        <button id="generate-post-btn" class="btn-primary">Generate post</button>
+      </div>
+
+      <div id="reply-mode" class="mode-panel">
+        <label for="original-post">Paste the post you're replying to</label>
+        <textarea id="original-post" placeholder="Paste the LinkedIn post text here..." rows="3"></textarea>
+        <label for="reply-angle">Your angle (optional)</label>
+        <input type="text" id="reply-angle" placeholder="e.g. agree but add nuance, disagree respectfully...">
+        <div class="row">
+          <div class="field">
+            <label for="reply-tone">Tone</label>
+            <select id="reply-tone">
+              <option value="supportive">Supportive</option>
+              <option value="add-value">Add value</option>
+              <option value="respectful-disagree">Respectful disagree</option>
+              <option value="curious">Curious / ask questions</option>
+              <option value="witty">Witty</option>
+            </select>
+          </div>
+        </div>
+        <button id="generate-reply-btn" class="btn-primary">Generate reply</button>
+      </div>
+
+      <div id="output-area" class="output-area hidden">
+        <div class="output-header">
+          <span class="output-label">Your draft</span>
+          <div class="output-actions">
+            <button id="copy-btn" class="btn-icon" title="Copy to clipboard">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+            <button id="regen-btn" class="btn-icon" title="Regenerate">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="output-text" class="output-text"></div>
+      </div>
+
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <span>Writing your draft...</span>
+      </div>
+
+      <div id="error" class="error hidden"></div>
+
+      <div id="upgrade-prompt" class="upgrade-prompt hidden">
+        <p>You've used all 3 free generations today.</p>
+        <button id="upgrade-btn" class="btn-upgrade">Upgrade to Pro — $7.99/mo</button>
+        <span class="upgrade-sub">Unlimited posts & replies across all Brando tools</span>
+      </div>
+
+      <div class="footer">
+        <span id="user-email" class="user-email"></span>
+        <a id="footer-upgrade" href="#" class="footer-upgrade">Upgrade to Pro</a>
+        <span id="plan-label" class="plan-label">Free plan</span>
+      </div>
+
+      <div class="brando-more">
+        <span>More AI tools by Brando</span>
+        <div class="brando-links">
+          <a href="#">YouTube</a>
+          <a href="#">Gmail</a>
+          <a href="#">Job Search</a>
+          <a href="#">Shopping</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
