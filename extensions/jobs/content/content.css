@@ -1,7 +1,49 @@
-.brando-analyze-btn {
-  display: inline-flex; align-items: center; padding: 6px 16px;
-  margin: 8px 0; border: 1px solid #0a66c2; border-radius: 16px;
-  background: transparent; color: #0a66c2; font-size: 13px; font-weight: 600;
-  cursor: pointer; transition: background 0.15s, color 0.15s;
+.brando-analyze-btn-wrapper {
+  padding: 8px 0 4px;
 }
-.brando-analyze-btn:hover { background: #0a66c2; color: #fff; }
+
+.brando-analyze-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid #0a66c2;
+  border-radius: 16px;
+  background: #fff;
+  color: #0a66c2;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.brando-analyze-btn:hover {
+  background: #0a66c2;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(10,102,194,0.25);
+}
+
+.brando-analyze-btn:active {
+  transform: scale(0.97);
+}
+
+.brando-nudge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 5px 10px;
+  background: #e8f0fe;
+  color: #0a66c2;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  animation: brando-fade-in 0.2s ease;
+}
+
+@keyframes brando-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
