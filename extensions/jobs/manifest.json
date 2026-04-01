@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Analyze any job listing with AI. Extract key skills, estimate salary, and see how well you match.",
   "permissions": ["activeTab", "storage"],
-  "host_permissions": ["https://www.linkedin.com/jobs/*", "https://www.indeed.com/*", "https://www.glassdoor.com/*"],
+  "host_permissions": ["https://www.linkedin.com/jobs/*", "https://www.indeed.com/*", "https://www.glassdoor.com/*", "https://brando-ai-tools-production.up.railway.app/*"],
   "action": {
     "default_popup": "popup/popup.html",
     "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
