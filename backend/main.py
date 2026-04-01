@@ -130,6 +130,28 @@ async def signup(req: AuthRequest):
         raise HTTPException(status_code=400, detail="Signup failed. Email may already be in use.")
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+@app.post("/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    """Send a password reset email via Supabase Auth."""
+    try:
+        with httpx.Client() as client:
+            client.post(
+                f"{SUPABASE_URL}/auth/v1/recover",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Content-Type": "application/json",
+                },
+                json={"email": req.email},
+            )
+    except Exception:
+        pass  # Don't reveal whether the email exists
+    return {"message": "If that email is registered, you'll receive a password reset link."}
+
+
 @app.post("/auth/login")
 async def login(req: AuthRequest):
     try:

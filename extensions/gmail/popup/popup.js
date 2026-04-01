@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 function setupAuthButtons() {
   document.getElementById("login-btn").addEventListener("click", handleLogin);
   document.getElementById("signup-btn").addEventListener("click", handleSignup);
+  document.getElementById("forgot-btn").addEventListener("click", handleForgotPassword);
   document.getElementById("logout-btn").addEventListener("click", handleLogout);
 
   document.getElementById("auth-email").addEventListener("keydown", (e) => {
@@ -130,6 +131,33 @@ async function handleLogout() {
   showAuthScreen();
 }
 
+async function handleForgotPassword() {
+  const email = document.getElementById("auth-email").value.trim();
+  if (!email) {
+    showAuthError("Enter your email address first.");
+    return;
+  }
+  const btn = document.getElementById("forgot-btn");
+  btn.disabled = true;
+  btn.textContent = "Sending...";
+  hideAuthError();
+  try {
+    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    showAuthError(data.message || "Check your email for a reset link.");
+    document.getElementById("auth-error").style.color = "#2e7d32";
+  } catch {
+    showAuthError("Something went wrong. Try again.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Forgot password?";
+  }
+}
+
 function showAuthScreen() {
   document.getElementById("auth-screen").classList.remove("hidden");
   document.getElementById("main-app").classList.add("hidden");
@@ -152,7 +180,9 @@ function showAuthError(msg) {
 }
 
 function hideAuthError() {
-  document.getElementById("auth-error").classList.add("hidden");
+  const el = document.getElementById("auth-error");
+  el.classList.add("hidden");
+  el.style.color = "";
 }
 
 function setAuthLoading(loading) {
