@@ -33,6 +33,8 @@ async def analyze(req: AnalyzeRequest, user=Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="Job listing text is required.")
         if len(req.job_text) > 5000:
             raise HTTPException(status_code=400, detail="Job text must be under 5000 characters.")
+        if req.resume_text and len(req.resume_text) > 5000:
+            raise HTTPException(status_code=400, detail="Resume text must be under 5000 characters.")
 
         if req.mode == "analyze":
             user_prompt = build_analyze_prompt(req.job_text)

@@ -49,6 +49,11 @@ async def summarize(req: SummarizeRequest, user=Depends(get_current_user)):
     if not allowed:
         raise HTTPException(status_code=429, detail="Daily free limit reached. Upgrade to Pro for unlimited.")
 
+    if len(req.video_url) > 500:
+        raise HTTPException(status_code=400, detail="Video URL must be under 500 characters.")
+    if req.video_title and len(req.video_title) > 200:
+        raise HTTPException(status_code=400, detail="Video title must be under 200 characters.")
+
     try:
         video_id = extract_video_id(req.video_url)
         transcript = get_transcript(video_id)

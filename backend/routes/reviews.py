@@ -2,7 +2,7 @@ import anthropic
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from ..core.auth import get_current_user
-from ..core.usage import increment_usage
+from ..core.usage import can_generate, increment_usage
 from ..core.config import MODEL_FAST
 from ..prompts.reviews_prompts import SYSTEM_PROMPT, build_summarize_prompt
 
@@ -23,9 +23,15 @@ class SummarizeResponse(BaseModel):
 
 @router.post("/summarize", response_model=SummarizeResponse)
 async def summarize(req: SummarizeRequest, user=Depends(get_current_user)):
+    allowed, _ = can_generate(user.id, "reviews")
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Daily limit reached. Try again tomorrow.")
+
     try:
         if not req.product_title or not req.reviews_text:
             raise HTTPException(status_code=400, detail="Product title and reviews text are required.")
+        if len(req.product_title) > 200:
+            raise HTTPException(status_code=400, detail="Product title must be under 200 characters.")
         if len(req.reviews_text) > 8000:
             raise HTTPException(status_code=400, detail="Reviews text must be under 8000 characters.")
 

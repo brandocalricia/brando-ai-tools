@@ -1,5 +1,7 @@
 import os
 import logging
+import time
+from collections import defaultdict
 from datetime import datetime, date
 
 import httpx
@@ -17,10 +19,32 @@ from core.config import (
     FREE_DAILY_LIMITS,
 )
 
+# IMPORTANT: Set a monthly spending limit on console.anthropic.com → Settings → Limits
+# Recommended: $20/mo to start, increase as revenue grows
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Brando AI Tools API", docs_url=None, redoc_url=None)
+
+# --- Rate limiting (runs before CORS) ---
+request_counts = defaultdict(list)
+RATE_LIMIT = 60  # requests per minute
+RATE_WINDOW = 60  # seconds
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    client_ip = request.client.host
+    now = time.time()
+    # Clean old entries
+    request_counts[client_ip] = [t for t in request_counts[client_ip] if now - t < RATE_WINDOW]
+    if len(request_counts[client_ip]) >= RATE_LIMIT:
+        return JSONResponse(status_code=429, content={"detail": "Too many requests. Try again later."})
+    request_counts[client_ip].append(now)
+    response = await call_next(request)
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,
