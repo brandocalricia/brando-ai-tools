@@ -37,6 +37,11 @@ _last_cleanup = 0.0
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
+    # Let CORS preflight through without rate limiting
+    if request.method == "OPTIONS":
+        response = await call_next(request)
+        return response
+
     global _last_cleanup
     client_ip = request.client.host
     now = time.time()
