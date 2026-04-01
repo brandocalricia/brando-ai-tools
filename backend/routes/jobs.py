@@ -1,10 +1,10 @@
 import anthropic
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from ..core.auth import get_current_user
-from ..core.usage import can_generate, increment_usage
-from ..core.config import MODEL_FAST, MODEL_SMART
-from ..prompts.jobs_prompts import SYSTEM_PROMPT, build_analyze_prompt, build_match_prompt, build_cover_letter_prompt
+from core.auth import get_current_user
+from core.usage import can_generate, increment_usage
+from core.config import MODEL_FAST, MODEL_SMART
+from prompts.jobs_prompts import SYSTEM_PROMPT, build_analyze_prompt, build_match_prompt, build_cover_letter_prompt
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 claude = anthropic.Anthropic()

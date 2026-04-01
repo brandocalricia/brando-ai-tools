@@ -2,7 +2,7 @@ import logging
 import httpx
 from fastapi import HTTPException, Header
 from gotrue import SyncGoTrueClient
-from .config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from core.config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 logger = logging.getLogger(__name__)
 

@@ -1,10 +1,10 @@
 import anthropic
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from ..core.auth import get_current_user
-from ..core.usage import can_generate, increment_usage
-from ..core.config import MODEL_FAST
-from ..prompts.linkedin_prompts import (
+from core.auth import get_current_user
+from core.usage import can_generate, increment_usage
+from core.config import MODEL_FAST
+from prompts.linkedin_prompts import (
     SYSTEM_PROMPT, TONE_GUIDES, LENGTH_GUIDES,
     build_post_prompt, build_reply_prompt,
 )

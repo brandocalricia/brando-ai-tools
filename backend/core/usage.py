@@ -1,7 +1,7 @@
 import logging
 from datetime import date
-from .auth import db_request, is_pro_for
-from .config import FREE_DAILY_LIMITS, SUPABASE_URL, SUPABASE_SERVICE_KEY
+from core.auth import db_request, is_pro_for
+from core.config import FREE_DAILY_LIMITS, SUPABASE_URL, SUPABASE_SERVICE_KEY
 import httpx
 
 logger = logging.getLogger(__name__)
