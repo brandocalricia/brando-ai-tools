@@ -9,10 +9,24 @@ let lastReviews = null;
 let lastProductInfo = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
+  await initTheme();
   setupAuthButtons();
   setupButtons();
   await checkExistingSession();
 });
+
+async function initTheme() {
+  const stored = await chrome.storage.local.get(["darkMode"]);
+  if (stored.darkMode) {
+    document.body.classList.add("dark");
+    document.getElementById("theme-toggle").textContent = "\u2600";
+  }
+  document.getElementById("theme-toggle").addEventListener("click", async () => {
+    const isDark = document.body.classList.toggle("dark");
+    document.getElementById("theme-toggle").textContent = isDark ? "\u2600" : "\u263D";
+    await chrome.storage.local.set({ darkMode: isDark });
+  });
+}
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
