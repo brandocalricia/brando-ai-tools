@@ -323,7 +323,12 @@ function renderSummary(data) {
   const prosSection = document.getElementById("pros-section");
   const prosList = document.getElementById("pros-list");
   if (data.pros && data.pros.length > 0) {
-    prosList.innerHTML = data.pros.map((p) => `<li>${p}</li>`).join("");
+    prosList.textContent = "";
+    data.pros.forEach((p) => {
+      const li = document.createElement("li");
+      li.textContent = p;
+      prosList.appendChild(li);
+    });
     prosSection.classList.remove("hidden");
   } else {
     prosSection.classList.add("hidden");
@@ -333,7 +338,12 @@ function renderSummary(data) {
   const consSection = document.getElementById("cons-section");
   const consList = document.getElementById("cons-list");
   if (data.cons && data.cons.length > 0) {
-    consList.innerHTML = data.cons.map((c) => `<li>${c}</li>`).join("");
+    consList.textContent = "";
+    data.cons.forEach((c) => {
+      const li = document.createElement("li");
+      li.textContent = c;
+      consList.appendChild(li);
+    });
     consSection.classList.remove("hidden");
   } else {
     consSection.classList.add("hidden");

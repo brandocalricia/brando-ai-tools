@@ -9,7 +9,7 @@ import stripe
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, field_validator
 
 from core.auth import auth_client, db_request, get_current_user, get_user_plan, is_pro_for
 from core.usage import get_usage_today
@@ -28,17 +28,35 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Brando AI Tools API", docs_url=None, redoc_url=None)
 
 # --- Rate limiting (runs before CORS) ---
-request_counts = defaultdict(list)
+request_counts: dict[str, list[float]] = {}
 RATE_LIMIT = 60  # requests per minute
 RATE_WINDOW = 60  # seconds
+MAX_TRACKED_IPS = 10000  # prevent unbounded memory growth
+_last_cleanup = 0.0
 
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
+    global _last_cleanup
     client_ip = request.client.host
     now = time.time()
-    # Clean old entries
-    request_counts[client_ip] = [t for t in request_counts[client_ip] if now - t < RATE_WINDOW]
+
+    # Periodic cleanup: prune stale IPs every 5 minutes
+    if now - _last_cleanup > 300:
+        stale_ips = [ip for ip, ts in request_counts.items() if not ts or now - ts[-1] > RATE_WINDOW]
+        for ip in stale_ips:
+            del request_counts[ip]
+        # Hard cap: if still too many IPs, drop oldest
+        if len(request_counts) > MAX_TRACKED_IPS:
+            request_counts.clear()
+        _last_cleanup = now
+
+    # Clean old entries for this IP
+    if client_ip in request_counts:
+        request_counts[client_ip] = [t for t in request_counts[client_ip] if now - t < RATE_WINDOW]
+    else:
+        request_counts[client_ip] = []
+
     if len(request_counts[client_ip]) >= RATE_LIMIT:
         return JSONResponse(status_code=429, content={"detail": "Too many requests. Try again later."})
     request_counts[client_ip].append(now)
@@ -73,8 +91,17 @@ app.include_router(reviews_router)
 # --- Auth endpoints (shared across all extensions) ---
 
 class AuthRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("Password must be at least 6 characters.")
+        if len(v) > 128:
+            raise ValueError("Password must be under 128 characters.")
+        return v
 
 
 @app.post("/auth/signup")
@@ -310,7 +337,8 @@ async def stripe_webhook(request: Request):
 
     except Exception as e:
         logger.error(f"Webhook error: {type(e).__name__}: {e}", exc_info=True)
-        return JSONResponse(content={"received": True, "error": str(e)}, status_code=200)
+        # Return 200 so Stripe doesn't retry, but don't leak error details
+        return JSONResponse(content={"received": True, "error": "processing_error"}, status_code=200)
 
     return JSONResponse(content={"received": True})
 
