@@ -13,7 +13,7 @@
       <div class="auth-header">
         <h1>Brando</h1>
         <p class="auth-subtitle">AI-powered product review summaries</p>
-        <p class="auth-free-badge">Free forever — no credit card needed</p>
+        <p class="auth-free-badge">3 free summaries/day — no credit card needed</p>
       </div>
 
       <div id="auth-error" class="error hidden"></div>
@@ -33,7 +33,7 @@
       <div class="header">
         <h1>Brando <span class="header-sub">Shopping</span></h1>
         <div class="header-right">
-          <div class="free-badge">FREE</div>
+          <div id="usage-badge" class="usage-badge">3/3 left</div>
           <button id="logout-btn" class="btn-logout" title="Log out">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -99,9 +99,16 @@
 
       <div id="error" class="error hidden"></div>
 
+      <div id="upgrade-prompt" class="upgrade-prompt hidden">
+        <p>You've used all 3 free summaries today.</p>
+        <button id="upgrade-btn" class="btn-upgrade">Upgrade to Pro — $3.99/mo</button>
+        <span class="upgrade-sub">Unlimited summaries. Or get all 5 Brando tools for $7.99/mo</span>
+      </div>
+
       <div class="footer">
         <span id="user-email" class="user-email"></span>
-        <span class="plan-label free">Free forever</span>
+        <a id="footer-upgrade" href="#" class="footer-upgrade">Upgrade to Pro</a>
+        <span id="plan-label" class="plan-label">Free plan</span>
       </div>
 
       <div class="brando-more">

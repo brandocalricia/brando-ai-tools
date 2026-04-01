@@ -1,7 +1,10 @@
 const API_BASE = "http://localhost:8000";
+const FREE_DAILY_LIMIT = 3;
 
 let accessToken = null;
 let userEmail = null;
+let isPro = false;
+let usageToday = 0;
 let lastReviews = null;
 let lastProductInfo = null;
 
@@ -40,6 +43,8 @@ async function checkExistingSession() {
     });
     if (!res.ok) throw new Error();
     const data = await res.json();
+    isPro = data.plan === "pro";
+    usageToday = data.usage?.reviews || 0;
     userEmail = data.email;
     showMainApp();
   } catch {
@@ -68,6 +73,8 @@ async function handleLogin() {
     if (!res.ok) throw new Error(data.detail || "Login failed.");
     accessToken = data.access_token;
     userEmail = data.user.email;
+    isPro = data.user.plan === "pro";
+    usageToday = 0;
     await chrome.storage.local.set({ accessToken, userEmail });
     showMainApp();
   } catch (err) {
@@ -101,6 +108,8 @@ async function handleSignup() {
     if (data.access_token) {
       accessToken = data.access_token;
       userEmail = data.user.email;
+      isPro = false;
+      usageToday = 0;
       await chrome.storage.local.set({ accessToken, userEmail });
       showMainApp();
     } else {
@@ -116,6 +125,8 @@ async function handleSignup() {
 async function handleLogout() {
   accessToken = null;
   userEmail = null;
+  usageToday = 0;
+  isPro = false;
   await chrome.storage.local.remove(["accessToken", "userEmail"]);
   showAuthScreen();
 }
@@ -132,6 +143,7 @@ async function showMainApp() {
   document.getElementById("auth-screen").classList.add("hidden");
   document.getElementById("main-app").classList.remove("hidden");
   document.getElementById("user-email").textContent = userEmail;
+  updateUI();
   await loadPageContext();
 }
 
@@ -200,6 +212,28 @@ function setupButtons() {
   document.getElementById("summarize-btn").addEventListener("click", summarizeReviews);
   document.getElementById("copy-btn").addEventListener("click", copyToClipboard);
   document.getElementById("regen-btn").addEventListener("click", summarizeReviews);
+  document.getElementById("upgrade-btn")?.addEventListener("click", openUpgrade);
+  document.getElementById("footer-upgrade").addEventListener("click", (e) => {
+    e.preventDefault();
+    openUpgrade();
+  });
+}
+
+function canGenerate() {
+  return isPro || usageToday < FREE_DAILY_LIMIT;
+}
+
+async function refreshPlanStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    isPro = data.plan === "pro";
+    usageToday = data.usage?.reviews || 0;
+    updateUI();
+  } catch {}
 }
 
 async function summarizeReviews() {
@@ -208,10 +242,24 @@ async function summarizeReviews() {
     return;
   }
 
+  if (!canGenerate()) {
+    showUpgradePrompt();
+    return;
+  }
+
   showLoading();
   hideOutput();
   hideError();
+  hideUpgradePrompt();
   document.getElementById("summarize-btn").disabled = true;
+
+  await refreshPlanStatus();
+  if (!canGenerate()) {
+    hideLoading();
+    document.getElementById("summarize-btn").disabled = false;
+    showUpgradePrompt();
+    return;
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/reviews/summarize`, {
@@ -221,8 +269,8 @@ async function summarizeReviews() {
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        reviews: lastReviews,
-        product_name: lastProductInfo?.name || "",
+        product_title: lastProductInfo?.name || "",
+        reviews_text: lastReviews,
         product_url: lastProductInfo?.url || "",
       }),
     });
@@ -231,13 +279,21 @@ async function summarizeReviews() {
       await handleLogout();
       return;
     }
+    if (res.status === 429) {
+      showUpgradePrompt();
+      return;
+    }
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.detail || "Something went wrong.");
     }
 
     const data = await res.json();
+    if (data.usage_remaining >= 0) {
+      usageToday = FREE_DAILY_LIMIT - data.usage_remaining;
+    }
     renderSummary(data);
+    updateUI();
   } catch (err) {
     showError(err.message || "Failed to connect to server.");
   } finally {
@@ -287,6 +343,9 @@ function renderSummary(data) {
   if (data.summary) {
     outputText.textContent = data.summary;
     outputText.classList.remove("hidden");
+  } else if (data.text) {
+    outputText.textContent = data.text;
+    outputText.classList.remove("hidden");
   } else {
     outputText.classList.add("hidden");
   }
@@ -312,7 +371,53 @@ function copyToClipboard() {
   showToast("Copied!");
 }
 
+// ── Upgrade ──────────────────────────────────────────────────────────────────
+
+async function openUpgrade() {
+  try {
+    const res = await fetch(`${API_BASE}/create-checkout-session`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Could not start checkout.");
+    }
+    const data = await res.json();
+    chrome.tabs.create({ url: data.checkout_url });
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
+
+function updateUI() {
+  const badge = document.getElementById("usage-badge");
+  const planLabel = document.getElementById("plan-label");
+  const footerUpgrade = document.getElementById("footer-upgrade");
+
+  if (isPro) {
+    badge.textContent = "Pro";
+    badge.className = "usage-badge";
+    planLabel.textContent = "Pro plan";
+    planLabel.className = "plan-label pro";
+    footerUpgrade.classList.add("hidden");
+  } else {
+    footerUpgrade.classList.remove("hidden");
+    const remaining = FREE_DAILY_LIMIT - usageToday;
+    badge.textContent = `${remaining}/${FREE_DAILY_LIMIT} left`;
+    if (remaining <= 0) {
+      badge.className = "usage-badge out";
+    } else if (remaining === 1) {
+      badge.className = "usage-badge warning";
+    } else {
+      badge.className = "usage-badge";
+    }
+    planLabel.textContent = "Free plan";
+    planLabel.className = "plan-label";
+  }
+}
 
 function showLoading() { document.getElementById("loading").classList.remove("hidden"); }
 function hideLoading() { document.getElementById("loading").classList.add("hidden"); }
@@ -323,6 +428,8 @@ function showError(msg) {
   el.classList.remove("hidden");
 }
 function hideError() { document.getElementById("error").classList.add("hidden"); }
+function showUpgradePrompt() { document.getElementById("upgrade-prompt").classList.remove("hidden"); }
+function hideUpgradePrompt() { document.getElementById("upgrade-prompt").classList.add("hidden"); }
 
 function showToast(msg) {
   const toast = document.querySelector(".toast");

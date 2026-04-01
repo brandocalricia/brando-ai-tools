@@ -16,5 +16,5 @@ FREE_DAILY_LIMITS = {
     "youtube": 5,
     "gmail": 3,
     "jobs": 3,
-    "reviews": 50,  # Shows as "unlimited" to users but capped at 50/day to prevent API abuse
+    "reviews": 3,
 }

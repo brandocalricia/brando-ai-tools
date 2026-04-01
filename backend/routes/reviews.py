@@ -19,13 +19,14 @@ class SummarizeRequest(BaseModel):
 class SummarizeResponse(BaseModel):
     text: str
     tokens_used: int
+    usage_remaining: int = -1
 
 
 @router.post("/summarize", response_model=SummarizeResponse)
 async def summarize(req: SummarizeRequest, user=Depends(get_current_user)):
-    allowed, _ = can_generate(user.id, "reviews")
+    allowed, remaining = can_generate(user.id, "reviews")
     if not allowed:
-        raise HTTPException(status_code=429, detail="Daily limit reached. Try again tomorrow.")
+        raise HTTPException(status_code=429, detail="Daily free limit reached. Upgrade to Pro for unlimited.")
 
     try:
         if not req.product_title or not req.reviews_text:
@@ -47,8 +48,9 @@ async def summarize(req: SummarizeRequest, user=Depends(get_current_user)):
         tokens_used = message.usage.input_tokens + message.usage.output_tokens
 
         increment_usage(user.id, "reviews")
+        _, new_remaining = can_generate(user.id, "reviews")
 
-        return SummarizeResponse(text=text, tokens_used=tokens_used)
+        return SummarizeResponse(text=text, tokens_used=tokens_used, usage_remaining=new_remaining)
     except HTTPException:
         raise
     except anthropic.APIError:
