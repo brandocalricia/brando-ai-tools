@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://brando-ai-tools-production.up.railway.app";
 const FREE_DAILY_LIMIT = 3;
 
 let currentMode = "rewrite";
