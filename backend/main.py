@@ -11,11 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
 
-from core.auth import auth_client, db_request, get_current_user, get_user_plan
+from core.auth import auth_client, db_request, get_current_user, get_user_plan, is_pro_for
 from core.usage import get_usage_today
 from core.config import (
     SUPABASE_URL, SUPABASE_SERVICE_KEY,
-    STRIPE_PRICE_ID, ALLOWED_ORIGINS,
+    STRIPE_PRICE_ID, STRIPE_PRICE_IDS, ALLOWED_ORIGINS,
     FREE_DAILY_LIMITS,
 )
 
@@ -121,20 +121,40 @@ async def login(req: AuthRequest):
 async def me(user=Depends(get_current_user)):
     plan = get_user_plan(user.id)
     usage = {}
+    pro_extensions = {}
     for ext in FREE_DAILY_LIMITS:
         usage[ext] = get_usage_today(user.id, ext)
+        pro_extensions[ext] = is_pro_for(user.id, ext)
     return {
         "id": user.id,
         "email": user.email,
         "plan": plan,
+        "pro_extensions": pro_extensions,
         "usage": usage,
     }
 
 
 # --- Stripe endpoints ---
 
+class CheckoutRequest(BaseModel):
+    extension: str = "bundle"  # "linkedin", "youtube", "gmail", "jobs", "reviews", or "bundle"
+
+
 @app.post("/create-checkout-session")
-async def create_checkout_session(user=Depends(get_current_user)):
+async def create_checkout_session(req: CheckoutRequest = CheckoutRequest(), user=Depends(get_current_user)):
+    ext = req.extension
+    valid_options = list(STRIPE_PRICE_IDS.keys())
+    if ext not in valid_options:
+        raise HTTPException(status_code=400, detail=f"Invalid extension. Choose from: {', '.join(valid_options)}")
+
+    # Get the right Stripe price ID
+    price_id = STRIPE_PRICE_IDS.get(ext, "")
+    if not price_id:
+        # Fallback to legacy single price ID
+        price_id = STRIPE_PRICE_ID
+    if not price_id:
+        raise HTTPException(status_code=500, detail="Payment not configured for this extension.")
+
     rows = db_request("GET", "users", params={
         "id": f"eq.{user.id}",
         "select": "stripe_customer_id",
@@ -151,11 +171,11 @@ async def create_checkout_session(user=Depends(get_current_user)):
     session = stripe.checkout.Session.create(
         customer=customer_id,
         payment_method_types=["card"],
-        line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+        line_items=[{"price": price_id, "quantity": 1}],
         mode="subscription",
         success_url=os.environ.get("STRIPE_SUCCESS_URL", "https://brando.ai/success"),
         cancel_url=os.environ.get("STRIPE_CANCEL_URL", "https://brando.ai"),
-        metadata={"user_id": user.id},
+        metadata={"user_id": user.id, "extension": ext},
     )
     return {"checkout_url": session.url}
 
@@ -212,11 +232,31 @@ async def stripe_webhook(request: Request):
             customer_id = safe_get(event_data, "customer")
             metadata = safe_get(event_data, "metadata", {})
             user_id = safe_get(metadata, "user_id") if metadata else None
+            ext = safe_get(metadata, "extension", "bundle") if metadata else "bundle"
             if not user_id:
                 user_id = find_user_id_from_customer(customer_id)
             if user_id:
-                update_user_plan(user_id, "pro")
-                logger.info(f"Updated user {user_id} to pro")
+                if ext == "bundle":
+                    # Bundle = full pro across everything
+                    update_user_plan(user_id, "pro")
+                else:
+                    # Individual extension — merge with existing plan
+                    current_plan = get_user_plan(user_id)
+                    if current_plan == "pro":
+                        pass  # already has bundle, nothing to do
+                    elif current_plan == "free":
+                        update_user_plan(user_id, ext)
+                    else:
+                        # Already has some individual extensions, add this one
+                        existing = set(current_plan.split(","))
+                        existing.add(ext)
+                        # If they now have all 5, upgrade to full pro
+                        all_exts = set(FREE_DAILY_LIMITS.keys())
+                        if existing >= all_exts:
+                            update_user_plan(user_id, "pro")
+                        else:
+                            update_user_plan(user_id, ",".join(sorted(existing)))
+                logger.info(f"Updated user {user_id} — extension={ext}")
 
         elif event_type in ("customer.subscription.deleted", "customer.subscription.updated"):
             customer_id = safe_get(event_data, "customer")
@@ -224,7 +264,41 @@ async def stripe_webhook(request: Request):
             if user_id:
                 status = safe_get(event_data, "status")
                 is_active = status in ("active", "trialing")
-                update_user_plan(user_id, "pro" if is_active else "free")
+                if not is_active:
+                    # Subscription cancelled — figure out which extension to remove
+                    # Get the price ID from the subscription to know which extension
+                    items = safe_get(event_data, "items")
+                    item_data = safe_get(items, "data", []) if items else []
+                    cancelled_ext = None
+                    if item_data:
+                        first_item = item_data[0] if isinstance(item_data, list) and len(item_data) > 0 else None
+                        if first_item:
+                            price_obj = safe_get(first_item, "price")
+                            price_id = safe_get(price_obj, "id") if price_obj else None
+                            # Reverse lookup: which extension does this price belong to?
+                            for ext_name, pid in STRIPE_PRICE_IDS.items():
+                                if pid and pid == price_id:
+                                    cancelled_ext = ext_name
+                                    break
+
+                    if cancelled_ext == "bundle" or not cancelled_ext:
+                        # Bundle cancelled or can't determine — reset to free
+                        update_user_plan(user_id, "free")
+                    else:
+                        # Individual extension cancelled — remove just that one
+                        current_plan = get_user_plan(user_id)
+                        if current_plan == "pro":
+                            # Had bundle, now removing one doesn't make sense — reset to free
+                            update_user_plan(user_id, "free")
+                        elif current_plan == "free":
+                            pass  # already free
+                        else:
+                            existing = set(current_plan.split(","))
+                            existing.discard(cancelled_ext)
+                            if existing:
+                                update_user_plan(user_id, ",".join(sorted(existing)))
+                            else:
+                                update_user_plan(user_id, "free")
 
         elif event_type == "invoice.payment_failed":
             customer_id = safe_get(event_data, "customer")

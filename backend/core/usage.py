@@ -1,5 +1,5 @@
 from datetime import date
-from .auth import db_request, get_user_plan
+from .auth import db_request, is_pro_for
 from .config import FREE_DAILY_LIMITS
 
 
@@ -38,8 +38,7 @@ def increment_usage(user_id: str, extension: str):
 
 
 def can_generate(user_id: str, extension: str) -> tuple[bool, int]:
-    plan = get_user_plan(user_id)
-    if plan == "pro":
+    if is_pro_for(user_id, extension):
         return True, -1
     limit = FREE_DAILY_LIMITS.get(extension, 3)
     usage = get_usage_today(user_id, extension)

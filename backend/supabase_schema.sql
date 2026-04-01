@@ -4,7 +4,8 @@
 create table public.users (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
-  plan text not null default 'free' check (plan in ('free', 'pro')),
+  -- plan values: 'free', 'pro' (bundle), or comma-separated extensions like 'linkedin,youtube'
+  plan text not null default 'free',
   stripe_customer_id text,
   created_at timestamptz not null default now()
 );
@@ -25,3 +26,9 @@ alter table public.usage enable row level security;
 
 -- Service role can do everything (backend uses service key)
 -- No user-facing RLS policies needed since all access goes through the API
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- MIGRATION: If you already ran the original schema with the CHECK constraint,
+-- run this to allow per-extension plan values:
+-- ══════════════════════════════════════════════════════════════════════════════
+-- ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_plan_check;

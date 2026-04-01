@@ -319,9 +319,14 @@ Do this ONLY after at least the LinkedIn extension is live on the Chrome Web Sto
 ### 6a. Create Live Product
 1. In Stripe, toggle **Live mode** ON (top-right switch)
 2. Go to **Product catalog** → **Add product**
-3. Name: `Brando Pro`
-4. Price: `$14.99/month` (or $7.99 if you want to keep individual extension pricing for now)
-5. Copy the new `price_...` ID
+3. Create **6 products** in Stripe:
+   - `Brando LinkedIn Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_LINKEDIN`
+   - `Brando YouTube Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_YOUTUBE`
+   - `Brando Gmail Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_GMAIL`
+   - `Brando Job Search Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_JOBS`
+   - `Brando Shopping Pro` → $3.99/month → copy price ID → set as `STRIPE_PRICE_REVIEWS`
+   - `Brando Pro Bundle (All 5)` → $14.99/month → copy price ID → set as `STRIPE_PRICE_BUNDLE`
+4. Set all 6 price IDs as env vars in Railway
 
 ### 6b. Create Live Webhook
 1. Stripe → Developers → Webhooks → **Add endpoint**
@@ -370,7 +375,8 @@ Railway auto-redeploys. Live payments are now active.
 ### 7d. Cost Per User Math
 - Claude Haiku: ~$0.001 per generation (less than a tenth of a cent)
 - Free user: 3 generations/day × 30 days = 90 generations/month = **$0.09/month** per active free user
-- Pro user at $7.99/month: even if they do 100 generations/day, that's $3/month in API costs = **$5/month profit per Pro user**
+- Single-extension Pro user at $3.99/month: even if they do 100 generations/day, that's $3/month in API costs = **$1/month profit**
+- Bundle Pro user at $14.99/month: even across all 5 tools, API costs stay under $5/month = **$10/month profit per bundle user**
 - You need **1 Pro user to cover your Railway costs** ($5/month)
 - At **650 Pro users**, you hit your $5,200/month goal
 

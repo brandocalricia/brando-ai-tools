@@ -43,7 +43,7 @@ async function checkExistingSession() {
     });
     if (!res.ok) throw new Error();
     const data = await res.json();
-    isPro = data.plan === "pro";
+    isPro = data.pro_extensions?.reviews || data.plan === "pro";
     usageToday = data.usage?.reviews || 0;
     userEmail = data.email;
     showMainApp();
@@ -73,7 +73,7 @@ async function handleLogin() {
     if (!res.ok) throw new Error(data.detail || "Login failed.");
     accessToken = data.access_token;
     userEmail = data.user.email;
-    isPro = data.user.plan === "pro";
+    isPro = data.user.plan === "pro" || (data.user.plan && data.user.plan.includes("reviews"));
     usageToday = 0;
     await chrome.storage.local.set({ accessToken, userEmail });
     showMainApp();
@@ -212,10 +212,11 @@ function setupButtons() {
   document.getElementById("summarize-btn").addEventListener("click", summarizeReviews);
   document.getElementById("copy-btn").addEventListener("click", copyToClipboard);
   document.getElementById("regen-btn").addEventListener("click", summarizeReviews);
-  document.getElementById("upgrade-btn")?.addEventListener("click", openUpgrade);
+  document.getElementById("upgrade-btn")?.addEventListener("click", () => openUpgrade("reviews"));
+  document.getElementById("bundle-btn")?.addEventListener("click", () => openUpgrade("bundle"));
   document.getElementById("footer-upgrade").addEventListener("click", (e) => {
     e.preventDefault();
-    openUpgrade();
+    openUpgrade("reviews");
   });
 }
 
@@ -230,7 +231,7 @@ async function refreshPlanStatus() {
     });
     if (!res.ok) return;
     const data = await res.json();
-    isPro = data.plan === "pro";
+    isPro = data.pro_extensions?.reviews || data.plan === "pro";
     usageToday = data.usage?.reviews || 0;
     updateUI();
   } catch {}
@@ -373,11 +374,15 @@ function copyToClipboard() {
 
 // ── Upgrade ──────────────────────────────────────────────────────────────────
 
-async function openUpgrade() {
+async function openUpgrade(extension = "reviews") {
   try {
     const res = await fetch(`${API_BASE}/create-checkout-session`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ extension }),
     });
     if (!res.ok) {
       const err = await res.json();

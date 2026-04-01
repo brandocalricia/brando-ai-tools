@@ -43,6 +43,7 @@ async def get_current_user(authorization: str = Header(...)):
 
 
 def get_user_plan(user_id: str) -> str:
+    """Returns the plan field: 'free', 'pro', or comma-separated extensions like 'linkedin,youtube'."""
     rows = db_request("GET", "users", params={
         "id": f"eq.{user_id}",
         "select": "plan",
@@ -50,3 +51,14 @@ def get_user_plan(user_id: str) -> str:
     if rows:
         return rows[0]["plan"]
     return "free"
+
+
+def is_pro_for(user_id: str, extension: str) -> bool:
+    """Check if user has Pro access for a specific extension."""
+    plan = get_user_plan(user_id)
+    if plan == "pro":
+        return True  # bundle — all extensions unlocked
+    if plan == "free":
+        return False
+    # Comma-separated individual extensions, e.g. "linkedin,youtube"
+    return extension in plan.split(",")

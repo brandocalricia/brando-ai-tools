@@ -193,6 +193,12 @@ textarea:focus, input[type="text"]:focus, select:focus {
   cursor: pointer; transition: background 0.15s;
 }
 .btn-upgrade:hover { background: #c96a0a; }
+.btn-bundle {
+  width: 100%; padding: 10px; margin-top: 8px; border: 1px solid #e47911;
+  border-radius: 8px; background: #fff; color: #e47911; font-size: 13px;
+  font-weight: 600; cursor: pointer; transition: background 0.15s;
+}
+.btn-bundle:hover { background: #fff8f0; }
 .upgrade-sub {
   display: block; margin-top: 6px; font-size: 10px; color: #999;
 }
