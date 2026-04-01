@@ -2,22 +2,33 @@
 
 Everything you need to get all 5 extensions working, tested, secured, and making money.
 
-**What you already have working:**
-- LinkedIn extension tested and working (on old standalone repo)
-- Supabase project with users + usage tables
-- Stripe account with test keys
-- Railway deployment (for old linkedin-post-gen)
-- Chrome Web Store developer account (verification pending)
-- Landing page on bolt.host
+**What's DONE:**
+- ✅ LinkedIn extension tested and working (on old standalone repo)
+- ✅ Supabase project with users + usage tables
+- ✅ Stripe account with test keys (webhook verified working)
+- ✅ Railway deployment running (brando-ai-tools backend deployed)
+- ✅ Chrome Web Store developer account ($5 paid)
+- ✅ LinkedIn CWS draft saved (waiting on developer verification)
+- ✅ Landing page on bolt.host
+- ✅ Privacy policy page at /privacy
+- ✅ Anthropic spending limit set to **$30/month** with email notification at $15
+- ✅ All security hardening done (rate limiting, input validation, prompt injection protection, Pro daily caps, atomic usage tracking, XSS fixes, pinned dependencies)
+- ✅ Per-extension + bundle payment system built ($3.99/mo individual, $14.99/mo bundle)
+- ✅ All 5 extension UIs have dual upgrade buttons (individual + bundle)
+- ✅ Monorepo scaffolded with all 5 extensions + shared backend
+- ✅ Test account for CWS reviewer: `brandocalricia+reviewer@gmail.com`
 
-**What still needs to be done:**
-- Deploy the new monorepo backend to Railway
-- Update Supabase schema for multi-extension usage tracking + per-extension plans
-- Test all 5 extensions locally
-- Publish extensions to Chrome Web Store
-- Create 6 Stripe products (5 individual + 1 bundle)
-- Switch Stripe to live mode
-- Set Anthropic API spending limits
+**What STILL needs to be done:**
+1. Run Supabase schema migration (add `extension` column + remove plan constraint)
+2. Update Railway to deploy from `brando-ai-tools` repo (if not already done)
+3. Set all 6 Stripe price env vars in Railway (after creating test products)
+4. Test all 5 extensions locally (only LinkedIn tested so far)
+5. Update `API_BASE` in each extension's popup.js to Railway URL before publishing
+6. Create icons for each extension
+7. Submit remaining 4 extensions to Chrome Web Store
+8. Create 6 Stripe products (5 individual + 1 bundle) in test mode, then live
+9. Switch Stripe to live mode after first extension approved
+10. Rebrand landing page with updated pricing ($3.99/mo + $14.99/mo)
 
 ---
 
@@ -53,28 +64,31 @@ Everything you need to get all 5 extensions working, tested, secured, and making
 
 ---
 
-## PHASE 1: SECURITY HARDENING (do this FIRST)
+## PHASE 1: SECURITY HARDENING ✅ DONE
 
-### 1a. Set Anthropic API Spending Limit (CRITICAL — protects your money)
-1. Go to **https://console.anthropic.com**
-2. Click **Settings** → **Limits**
-3. Set **Monthly spending limit** to **$20**
-4. This means even if someone abuses your API, max damage is $20/month
-5. As revenue grows, increase this gradually ($50, $100, etc.)
-6. With Haiku at ~$0.001 per generation, $20 covers ~20,000 generations
+### 1a. Set Anthropic API Spending Limit ✅ DONE
+- Monthly spending limit set to **$30/month** on console.anthropic.com
+- Email notification set at $15 (halfway alert)
+- Auto reload is **disabled** — credits won't refill if abused
+- $30 covers ~30,000 Haiku generations — more than enough
+- Increase gradually as revenue grows ($50, $100, etc.)
 
-### 1b. Verify Backend Security (already done in code)
-The backend already has these protections:
+### 1b. Backend Security ✅ ALL DONE
+Full security audit completed and all vulnerabilities fixed:
 - ✅ All endpoints require auth (JWT token from Supabase)
 - ✅ CORS locked to specific extension IDs only
-- ✅ Input length limits on all text fields
+- ✅ Input length limits on all text fields (email validated with EmailStr, password 6-128 chars)
 - ✅ Server-side usage enforcement (can't bypass by modifying extension)
-- ✅ Stripe webhook signature verification
+- ✅ Stripe webhook signature verification (error responses don't leak details)
 - ✅ Docs/Swagger UI disabled in production
-- ✅ Rate limiting: 60 requests/minute per IP
-- ✅ Daily generation caps on all extensions (3/day free, including Shopping)
+- ✅ Rate limiting: 60 requests/minute per IP (with memory cleanup, 10k IP cap)
+- ✅ Daily generation caps: 3/day free on all extensions, 500/day hard cap for Pro users
 - ✅ max_tokens capped on all Claude API calls (prevents runaway costs)
 - ✅ Per-extension Pro checks (buying LinkedIn Pro doesn't unlock YouTube)
+- ✅ Prompt injection protection: all user input wrapped in XML tags
+- ✅ XSS protection: innerHTML replaced with textContent in reviews extension
+- ✅ Atomic usage tracking: race condition fixed with optimistic locking
+- ✅ Dependencies pinned with version ranges in requirements.txt
 
 ### 1c. Things to NEVER do
 - NEVER commit `.env` files or API keys to GitHub
@@ -304,8 +318,10 @@ For each extension:
 ## PHASE 5: PUBLISH TO CHROME WEB STORE
 
 ### 5a. Current Status
-- LinkedIn extension: draft saved, waiting on CWS developer verification
-- Other 4 extensions: not yet submitted
+- LinkedIn extension: draft saved in CWS, all fields filled out, waiting on developer identity verification
+- Test credentials for CWS reviewer: `brandocalricia+reviewer@gmail.com` (password set during signup)
+- Other 4 extensions: code complete, not yet submitted to CWS
+- CWS developer fee: $5 already paid
 
 ### 5b. Submission Order (recommended)
 1. **LinkedIn** — already drafted, submit as soon as verification clears
@@ -375,7 +391,8 @@ Example for YouTube manifest.json:
 - Data usage: check "Personally identifiable information" and "Authentication information"
 - Check all 3 certification boxes
 - Distribution: Public, all regions
-- Payments: "Contains in-app purchases" (all extensions now have paid upgrades)
+- Payments: "Contains in-app purchases" (all 5 extensions have $3.99/mo individual Pro + $14.99/mo bundle)
+- Test account for reviewer: `brandocalricia+reviewer@gmail.com`
 
 ### 5e. After Each Extension Is Approved
 1. Copy the extension ID from the CWS listing URL
@@ -467,10 +484,11 @@ Railway auto-redeploys. Live payments are now active.
 
 ## PHASE 7: MONITOR & PROTECT YOUR MONEY
 
-### 7a. Set Up Anthropic Alerts
-1. Go to **console.anthropic.com** → **Settings** → **Limits**
-2. Set monthly limit to **$20** (increase as needed)
-3. Check usage daily for the first week after launch
+### 7a. Anthropic Alerts ✅ DONE
+- Monthly limit set to **$30** on console.anthropic.com
+- Email notification at **$15** (halfway warning)
+- Auto reload disabled
+- Check usage daily for the first week after launch
 
 ### 7b. Monitor Stripe Dashboard
 1. Check Stripe dashboard weekly for revenue
@@ -511,16 +529,17 @@ Railway auto-redeploys. Live payments are now active.
 ## PHASE 8: LAUNCH CHECKLIST
 
 ### Before first extension goes live:
-- [ ] Anthropic spending limit set ($20/month)
+- [x] Anthropic spending limit set ($30/month) + email alert at $15
+- [x] Security audit completed — all vulnerabilities fixed
 - [ ] Supabase schema updated with `extension` column + plan constraint removed
-- [ ] New backend deployed to Railway
+- [ ] New backend deployed to Railway from brando-ai-tools repo
 - [ ] `/health` endpoint returns OK
 - [ ] Stripe webhook URL updated (if Railway URL changed)
 - [ ] All env vars set in Railway (including 6 Stripe price IDs)
 - [ ] `ALLOWED_ORIGINS` includes your extension IDs
 - [ ] Landing page rebranded to "Brando" on bolt.new
 - [ ] Landing page shows correct pricing ($3.99/mo individual, $14.99/mo bundle)
-- [ ] Privacy policy page accessible at /privacy
+- [x] Privacy policy page accessible at /privacy
 
 ### For each extension before publishing:
 - [ ] `API_BASE` in popup.js changed to Railway URL
@@ -556,19 +575,24 @@ Railway auto-redeploys. Live payments are now active.
 
 ## QUICK REFERENCE: WHAT TO DO RIGHT NOW
 
-In order:
-1. **Set Anthropic spending limit** → console.anthropic.com → $20/month
-2. **Run Supabase migration** → add `extension` column + remove plan constraint
-3. **Create 6 Stripe test products** → 5 individual ($3.99) + 1 bundle ($14.99)
-4. **Deploy new backend** → update Railway to use brando-ai-tools repo, set all env vars
-5. **Test LinkedIn extension** → verify it works with new backend, test both upgrade buttons
-6. **Test all other extensions locally** → YouTube, Gmail, Jobs, Shopping
-7. **Test payment flows** → individual purchase, bundle purchase, cancellation
-8. **Rebrand landing page** → paste the Bolt AI prompt (show $3.99/mo + $14.99/mo pricing)
-9. **Wait for CWS verification** → then submit LinkedIn extension
-10. **Submit remaining extensions** → YouTube, Shopping, Gmail, Jobs
-11. **Switch Stripe to live** → after first extension is approved
-12. **Start making money**
+~~1. **Set Anthropic spending limit** → ✅ DONE ($30/month, alert at $15)~~
+~~2. **Security hardening** → ✅ DONE (full audit, all fixes pushed)~~
+
+**Next steps, in order:**
+3. **Run Supabase migration** → add `extension` column + remove plan constraint (copy/paste SQL from Phase 2)
+4. **Deploy new backend to Railway** → update Railway to use brando-ai-tools repo, set root dir to `backend`
+5. **Set Railway env vars** → all the existing ones + 6 new Stripe price vars (can use `STRIPE_PRICE_ID` as fallback for now)
+6. **Verify `/health` returns OK** → open `https://YOUR-RAILWAY-URL/health`
+7. **Test LinkedIn extension locally** → verify it works with the new monorepo backend
+8. **Test YouTube, Gmail, Jobs, Shopping locally** → load each in chrome://extensions
+9. **Create 6 Stripe test products** → 5 individual ($3.99) + 1 bundle ($14.99), set price env vars
+10. **Test payment flows** → individual purchase, bundle purchase, cancellation
+11. **Rebrand landing page** → paste the Bolt AI prompt (update pricing to $3.99/mo + $14.99/mo)
+12. **Update `API_BASE` in each popup.js** → change from localhost to Railway URL
+13. **Wait for CWS verification** → then submit LinkedIn extension
+14. **Submit remaining extensions** → YouTube, Shopping, Gmail, Jobs
+15. **Switch Stripe to live** → after first extension is approved
+16. **Start making money**
 
 ---
 
