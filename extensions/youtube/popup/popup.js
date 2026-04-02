@@ -253,8 +253,38 @@ function extractVideoId(url) {
   return match ? match[1] : null;
 }
 
-async function fetchTranscriptClientSide(videoId) {
-  // Method 1: Inject script into the YouTube tab to get captions from player data
+async function fetchCaptionUrl(videoId) {
+  // Method 1: YouTube InnerTube API (most reliable from extension context)
+  try {
+    const resp = await fetch("https://www.youtube.com/youtubei/v1/player", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        videoId: videoId,
+        context: {
+          client: {
+            clientName: "WEB",
+            clientVersion: "2.20240101.00.00",
+            hl: "en",
+          },
+        },
+      }),
+    });
+    const data = await resp.json();
+    const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (tracks && tracks.length > 0) {
+      // Prefer English
+      for (const t of tracks) {
+        if (t.languageCode && t.languageCode.startsWith("en")) return t.baseUrl;
+      }
+      return tracks[0].baseUrl;
+    }
+  } catch (e) {
+    console.warn("InnerTube API failed:", e);
+  }
+
+  // Method 2: Inject into YouTube tab to read player data
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab && tab.url && tab.url.includes("youtube.com")) {
@@ -262,111 +292,83 @@ async function fetchTranscriptClientSide(videoId) {
         target: { tabId: tab.id },
         world: "MAIN",
         func: () => {
-          // ytInitialPlayerResponse is set by YouTube on the page
-          const player = window.ytInitialPlayerResponse;
-          if (!player) return null;
-
-          const tracks =
-            player?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-          if (!tracks || tracks.length === 0) return null;
-
-          // Find English track, fall back to first
-          let url = null;
-          for (const t of tracks) {
-            if (t.languageCode && t.languageCode.startsWith("en")) {
-              url = t.baseUrl;
-              break;
+          try {
+            // Try ytInitialPlayerResponse
+            const player = window.ytInitialPlayerResponse;
+            if (player) {
+              const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+              if (tracks && tracks.length > 0) {
+                for (const t of tracks) {
+                  if (t.languageCode && t.languageCode.startsWith("en")) return t.baseUrl;
+                }
+                return tracks[0].baseUrl;
+              }
             }
-          }
-          if (!url) url = tracks[0].baseUrl;
-          return url;
+            // Try movie_player
+            const mp = document.getElementById("movie_player");
+            if (mp && mp.getPlayerResponse) {
+              const pr = mp.getPlayerResponse();
+              const tracks = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+              if (tracks && tracks.length > 0) {
+                for (const t of tracks) {
+                  if (t.languageCode && t.languageCode.startsWith("en")) return t.baseUrl;
+                }
+                return tracks[0].baseUrl;
+              }
+            }
+          } catch {}
+          return null;
         },
       });
-
-      const captionUrl = results?.[0]?.result;
-      if (captionUrl) {
-        const resp = await fetch(captionUrl + "&fmt=json3");
-        const data = await resp.json();
-        const snippets = [];
-        for (const event of (data.events || [])) {
-          for (const seg of (event.segs || [])) {
-            const text = (seg.utf8 || "").trim();
-            if (text && text !== "\n") snippets.push(text);
-          }
-        }
-        if (snippets.length > 0) return snippets.join(" ");
-      }
+      if (results?.[0]?.result) return results[0].result;
     }
   } catch (e) {
-    console.warn("Method 1 (tab inject) failed:", e);
-  }
-
-  // Method 2: Fetch the watch page HTML and parse caption URLs
-  try {
-    const pageResp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-      credentials: "include",
-    });
-    const html = await pageResp.text();
-
-    // Use a more robust extraction — find the full captionTracks array
-    const marker = '"captionTracks":';
-    const idx = html.indexOf(marker);
-    if (idx === -1) return null;
-
-    // Extract the JSON array by counting brackets
-    let start = idx + marker.length;
-    while (start < html.length && html[start] !== "[") start++;
-    if (start >= html.length) return null;
-
-    let depth = 0;
-    let end = start;
-    for (let i = start; i < html.length; i++) {
-      if (html[i] === "[") depth++;
-      else if (html[i] === "]") depth--;
-      if (depth === 0) { end = i + 1; break; }
-    }
-
-    const tracksJson = html.substring(start, end);
-    const tracks = JSON.parse(tracksJson);
-    if (!tracks || tracks.length === 0) return null;
-
-    let captionUrl = null;
-    for (const t of tracks) {
-      if (t.languageCode && t.languageCode.startsWith("en")) {
-        captionUrl = t.baseUrl;
-        break;
-      }
-    }
-    if (!captionUrl) captionUrl = tracks[0].baseUrl;
-    if (!captionUrl) return null;
-
-    // Try json3 format first, then fall back to XML
-    let snippets = [];
-    try {
-      const capsResp = await fetch(captionUrl + "&fmt=json3");
-      const data = await capsResp.json();
-      for (const event of (data.events || [])) {
-        for (const seg of (event.segs || [])) {
-          const text = (seg.utf8 || "").trim();
-          if (text && text !== "\n") snippets.push(text);
-        }
-      }
-    } catch {
-      // json3 failed, try default XML format
-      const capsResp = await fetch(captionUrl);
-      const xml = await capsResp.text();
-      const textMatches = xml.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
-      for (const tag of textMatches) {
-        const inner = tag.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
-        if (inner) snippets.push(inner);
-      }
-    }
-    return snippets.length > 0 ? snippets.join(" ") : null;
-  } catch (e) {
-    console.warn("Method 2 (page fetch) failed:", e);
+    console.warn("Tab inject failed:", e);
   }
 
   return null;
+}
+
+async function fetchTranscriptFromUrl(captionUrl) {
+  // Try json3 format
+  try {
+    const resp = await fetch(captionUrl + "&fmt=json3");
+    const data = await resp.json();
+    const snippets = [];
+    for (const event of (data.events || [])) {
+      for (const seg of (event.segs || [])) {
+        const text = (seg.utf8 || "").trim();
+        if (text && text !== "\n") snippets.push(text);
+      }
+    }
+    if (snippets.length > 0) return snippets.join(" ");
+  } catch {}
+
+  // Fallback: default XML format
+  try {
+    const resp = await fetch(captionUrl);
+    const xml = await resp.text();
+    const snippets = [];
+    const tags = xml.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
+    for (const tag of tags) {
+      const inner = tag.replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+        .replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
+      if (inner) snippets.push(inner);
+    }
+    if (snippets.length > 0) return snippets.join(" ");
+  } catch {}
+
+  return null;
+}
+
+async function fetchTranscriptClientSide(videoId) {
+  const captionUrl = await fetchCaptionUrl(videoId);
+  if (!captionUrl) {
+    console.warn("No caption URL found for video:", videoId);
+    return null;
+  }
+  return await fetchTranscriptFromUrl(captionUrl);
 }
 
 async function summarize() {
