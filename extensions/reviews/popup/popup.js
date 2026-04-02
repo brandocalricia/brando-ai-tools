@@ -209,12 +209,30 @@ function setAuthLoading(loading) {
 
 // ── Page context ──────────────────────────────────────────────────────────────
 
+function isKnownShoppingSite(url) {
+  const patterns = [
+    { host: "amazon.com", path: /\/dp\/|\/gp\/product\// },
+    { host: "amazon.co", path: /\/dp\/|\/gp\/product\// },
+    { host: "bestbuy.com", path: /\/site\// },
+    { host: "walmart.com", path: /\/ip\// },
+    { host: "target.com", path: /\/p\// },
+    { host: "newegg.com", path: /\/p\/|\/Product\// },
+    { host: "homedepot.com", path: /\/p\// },
+    { host: "lowes.com", path: /\/pd\// },
+    { host: "ebay.com", path: /\/itm\// },
+  ];
+  try {
+    const u = new URL(url);
+    return patterns.some((p) => u.hostname.includes(p.host) && p.path.test(u.pathname));
+  } catch { return false; }
+}
+
 async function loadPageContext() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url) return showNoProduct();
 
-    // Try to trigger a fresh scrape from the content script
+    // Method 1: Try content script message
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_REVIEWS" });
       if (response && response.product) {
@@ -225,12 +243,64 @@ async function loadPageContext() {
       }
     } catch {}
 
-    // Fall back to cached data
-    const stored = await chrome.storage.local.get(["scrapedReviews", "scrapedProduct", "scrapedUrl"]);
-    if (stored.scrapedProduct && stored.scrapedUrl === tab.url) {
-      lastReviews = stored.scrapedReviews || [];
-      lastProductInfo = stored.scrapedProduct;
-      showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+    // Method 2: Inject a scraper via chrome.scripting (works even if content script didn't load)
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const name =
+            document.querySelector('[itemprop="name"]')?.innerText?.trim() ||
+            document.querySelector('meta[property="og:title"]')?.getAttribute("content") ||
+            document.getElementById("productTitle")?.innerText?.trim() ||
+            document.querySelector(".sku-title h1")?.innerText?.trim() ||
+            document.querySelector("h1")?.innerText?.trim() ||
+            document.title;
+
+          const reviews = [];
+          const seen = new Set();
+          // Amazon reviews
+          document.querySelectorAll('[data-hook="review"]').forEach((el) => {
+            const body = el.querySelector('[data-hook="review-body"]');
+            if (body) { const t = body.innerText.trim().substring(0, 500); if (t.length > 10 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); } }
+          });
+          // Amazon review snippets
+          document.querySelectorAll('.review-text-content, [data-hook="review-collapsed"]').forEach((el) => {
+            const t = el.innerText.trim().substring(0, 500); if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); }
+          });
+          // Amazon aggregate rating
+          if (reviews.length === 0) {
+            const agg = document.querySelector('#acrCustomerReviewText, [data-hook="total-review-count"]');
+            const star = document.querySelector('#acrPopover .a-icon-alt, [data-hook="rating-out-of-text"]');
+            if (agg) reviews.push({ text: `Overall: ${star ? star.innerText.trim() + " — " : ""}${agg.innerText.trim()}`, rating: star ? star.innerText.trim() : null });
+          }
+          // Generic reviews
+          if (reviews.length === 0) {
+            const sels = ['[itemprop="review"]', '[itemprop="reviewBody"]', '.review', '.customer-review', '.product-review', '[class*="review-text"]', '[class*="review-body"]', '[data-testid*="review"]'];
+            for (const sel of sels) {
+              document.querySelectorAll(sel).forEach((el) => {
+                const t = (el.querySelector('[class*="body"], [class*="text"], p') || el).innerText.trim().substring(0, 500);
+                if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); }
+              });
+              if (reviews.length > 0) break;
+            }
+          }
+          return { product: { name, url: location.href }, reviews };
+        },
+      });
+      if (results && results[0]?.result?.product) {
+        const data = results[0].result;
+        lastReviews = data.reviews || [];
+        lastProductInfo = data.product;
+        showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+        return;
+      }
+    } catch {}
+
+    // Method 3: If it's a known shopping site, show product info anyway
+    if (isKnownShoppingSite(tab.url)) {
+      lastReviews = [];
+      lastProductInfo = { name: tab.title || "Product page", url: tab.url };
+      showProductInfo(lastProductInfo, tab.url, 0);
       return;
     }
 
@@ -319,7 +389,7 @@ async function refreshPlanStatus() {
 
 async function summarizeReviews() {
   if (!lastReviews || lastReviews.length === 0) {
-    showError("No reviews found on this page. Make sure you're on a product page.");
+    showError("No reviews found on this page. Try scrolling down to load reviews first, then click Summarize again.");
     return;
   }
 
