@@ -24,7 +24,7 @@ function detectSite() {
 function isProductPage(site) {
   const path = location.pathname;
   if (site === "amazon") return /\/dp\/|\/gp\/product\//.test(path);
-  if (site === "bestbuy") return /\/site\/|\/product\//.test(path);
+  if (site === "bestbuy") return /\/site\/|\/product\//.test(path) || /\/reviews/.test(path);
   if (site === "walmart") return /\/ip\//.test(path);
   if (site === "target") return /\/p\//.test(path);
   if (site === "newegg") return /\/p\/|\/Product\//.test(path);
@@ -117,29 +117,34 @@ function scrapeAmazonProduct() {
   return { name, url: location.href };
 }
 
-function scrapeBestBuyReviews() {
+function parseBestBuyReviewList(container) {
   const reviews = [];
-  // Current Best Buy layout: #review-list > li
-  const reviewList = document.getElementById("review-list");
-  if (reviewList) {
-    reviewList.querySelectorAll(":scope > li").forEach((li) => {
-      // Review body is a <p> with id starting "ugc-line-clamp-reviews-" or class "body-copy-lg"
-      const body =
-        li.querySelector("p[id^='ugc-line-clamp-reviews']") ||
-        li.querySelector("div.relative p.body-copy-lg") ||
-        li.querySelector("p.body-copy-lg");
-      // Rating is in a sr-only span next to the stars icon
-      const ratingEl = li.querySelector("span.sr-only");
-      const ratingText = ratingEl ? ratingEl.innerText.trim() : null;
-      if (body) {
-        reviews.push({
-          text: body.innerText.trim().substring(0, 500),
-          rating: ratingText,
-        });
-      }
-    });
+  if (!container) return reviews;
+  container.querySelectorAll(":scope > li").forEach((li) => {
+    const body =
+      li.querySelector("p[id^='ugc-line-clamp-reviews']") ||
+      li.querySelector("p[id^='ugc-line-clamp']") ||
+      li.querySelector("div.relative p.body-copy-lg") ||
+      li.querySelector("p.body-copy-lg");
+    const ratingEl = li.querySelector("span.sr-only");
+    const ratingText = ratingEl ? ratingEl.innerText.trim() : null;
+    if (body) {
+      reviews.push({
+        text: body.innerText.trim().substring(0, 500),
+        rating: ratingText,
+      });
+    }
+  });
+  return reviews;
+}
+
+function scrapeBestBuyReviews() {
+  // Check both list IDs (product page vs dedicated reviews page)
+  let reviews = parseBestBuyReviewList(document.getElementById("stand-alone-review-list"));
+  if (reviews.length === 0) {
+    reviews = parseBestBuyReviewList(document.getElementById("review-list"));
   }
-  // Fallback: older layout or different page structure
+  // Fallback: older layout
   if (reviews.length === 0) {
     document.querySelectorAll(".review-item, [class*='ugc-review'], [class*='review-entry'], [data-testid='sku-review']").forEach((el) => {
       const body =
@@ -154,6 +159,27 @@ function scrapeBestBuyReviews() {
       }
     });
   }
+  return reviews;
+}
+
+async function scrapeBestBuyReviewsAsync() {
+  // First try DOM scraping
+  let reviews = scrapeBestBuyReviews();
+  if (reviews.length > 3) return reviews;
+
+  // Fetch the dedicated reviews page to get 20 reviews
+  try {
+    const baseUrl = location.href.replace(/#.*$/, "").replace(/\/reviews.*$/, "");
+    const reviewsUrl = baseUrl + "/reviews?pageSize=20";
+    const resp = await fetch(reviewsUrl);
+    const html = await resp.text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const list = doc.getElementById("stand-alone-review-list") || doc.getElementById("review-list");
+    if (list) {
+      const fetched = parseBestBuyReviewList(list);
+      if (fetched.length > reviews.length) reviews = fetched;
+    }
+  } catch {}
   return reviews;
 }
 
@@ -261,6 +287,13 @@ function scrapeAll(site) {
   return { reviews: scrapeGenericReviews(), product: scrapeGenericProduct() };
 }
 
+async function scrapeAllAsync(site) {
+  if (site === "bestbuy") {
+    return { reviews: await scrapeBestBuyReviewsAsync(), product: scrapeBestBuyProduct() };
+  }
+  return scrapeAll(site);
+}
+
 // ── Badge injection ───────────────────────────────────────────────────────────
 
 function injectBadge(reviewCount) {
@@ -317,11 +350,11 @@ function handleBadgeClick() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-function init() {
+async function init() {
   const site = detectSite();
   if (!isProductPage(site)) return;
 
-  const { reviews, product } = scrapeAll(site);
+  const { reviews, product } = await scrapeAllAsync(site);
 
   // For generic sites, only proceed if we actually found reviews
   if (site === "generic" && reviews.length === 0) return;
@@ -350,14 +383,15 @@ function init() {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "SCRAPE_REVIEWS") {
     const site = detectSite();
-    const { reviews, product } = scrapeAll(site);
-    chrome.storage.local.set({
-      scrapedReviews: reviews,
-      scrapedProduct: product,
-      scrapedSite: site,
-      scrapedUrl: location.href,
+    scrapeAllAsync(site).then(({ reviews, product }) => {
+      chrome.storage.local.set({
+        scrapedReviews: reviews,
+        scrapedProduct: product,
+        scrapedSite: site,
+        scrapedUrl: location.href,
+      });
+      sendResponse({ reviews, product, site });
     });
-    sendResponse({ reviews, product, site });
     return true; // keep message channel open for async
   }
 });

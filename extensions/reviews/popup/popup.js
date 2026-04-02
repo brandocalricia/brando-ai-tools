@@ -214,6 +214,7 @@ function isKnownShoppingSite(url) {
     { host: "amazon.com", path: /\/dp\/|\/gp\/product\// },
     { host: "amazon.co", path: /\/dp\/|\/gp\/product\// },
     { host: "bestbuy.com", path: /\/site\/|\/product\// },
+    { host: "bestbuy.com", path: /\/reviews/ },
     { host: "walmart.com", path: /\/ip\// },
     { host: "target.com", path: /\/p\// },
     { host: "newegg.com", path: /\/p\/|\/Product\// },
@@ -247,7 +248,7 @@ async function loadPageContext() {
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: () => {
+        func: async () => {
           const name =
             document.querySelector('[itemprop="name"]')?.innerText?.trim() ||
             document.querySelector('meta[property="og:title"]')?.getAttribute("content") ||
@@ -258,34 +259,49 @@ async function loadPageContext() {
 
           const reviews = [];
           const seen = new Set();
+
+          function parseBBList(container) {
+            const r = [];
+            if (!container) return r;
+            container.querySelectorAll(":scope > li").forEach((li) => {
+              const body = li.querySelector("p[id^='ugc-line-clamp']") || li.querySelector("p.body-copy-lg");
+              const ratingEl = li.querySelector("span.sr-only");
+              if (body) {
+                const t = body.innerText.trim().substring(0, 500);
+                if (t.length > 20 && !seen.has(t)) { seen.add(t); r.push({ text: t, rating: ratingEl ? ratingEl.innerText.trim() : null }); }
+              }
+            });
+            return r;
+          }
+
           // Amazon reviews
           document.querySelectorAll('[data-hook="review"]').forEach((el) => {
             const body = el.querySelector('[data-hook="review-body"]');
             if (body) { const t = body.innerText.trim().substring(0, 500); if (t.length > 10 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); } }
           });
-          // Amazon review snippets
           document.querySelectorAll('.review-text-content, [data-hook="review-collapsed"]').forEach((el) => {
             const t = el.innerText.trim().substring(0, 500); if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); }
           });
-          // Amazon aggregate rating
           if (reviews.length === 0) {
             const agg = document.querySelector('#acrCustomerReviewText, [data-hook="total-review-count"]');
             const star = document.querySelector('#acrPopover .a-icon-alt, [data-hook="rating-out-of-text"]');
             if (agg) reviews.push({ text: `Overall: ${star ? star.innerText.trim() + " — " : ""}${agg.innerText.trim()}`, rating: star ? star.innerText.trim() : null });
           }
-          // Best Buy reviews
-          if (reviews.length === 0) {
-            const rl = document.getElementById('review-list');
-            if (rl) {
-              rl.querySelectorAll(':scope > li').forEach((li) => {
-                const body = li.querySelector("p[id^='ugc-line-clamp-reviews']") || li.querySelector("p.body-copy-lg");
-                const ratingEl = li.querySelector("span.sr-only");
-                if (body) {
-                  const t = body.innerText.trim().substring(0, 500);
-                  if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: ratingEl ? ratingEl.innerText.trim() : null }); }
-                }
-              });
+          // Best Buy reviews — try DOM first, then fetch reviews page
+          if (reviews.length === 0 && location.hostname.includes("bestbuy.com")) {
+            let bb = parseBBList(document.getElementById("stand-alone-review-list"));
+            if (bb.length === 0) bb = parseBBList(document.getElementById("review-list"));
+            if (bb.length <= 3) {
+              try {
+                const baseUrl = location.href.replace(/#.*$/, "").replace(/\/reviews.*$/, "");
+                const resp = await fetch(baseUrl + "/reviews?pageSize=20");
+                const html = await resp.text();
+                const doc = new DOMParser().parseFromString(html, "text/html");
+                const fetched = parseBBList(doc.getElementById("stand-alone-review-list") || doc.getElementById("review-list"));
+                if (fetched.length > bb.length) bb = fetched;
+              } catch {}
             }
+            reviews.push(...bb);
           }
           // Generic reviews
           if (reviews.length === 0) {
