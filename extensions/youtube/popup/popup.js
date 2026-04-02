@@ -254,127 +254,54 @@ function extractVideoId(url) {
 }
 
 async function fetchTranscriptClientSide(videoId) {
+  // Method 1: Check if our content script intercepted the transcript already
+  try {
+    const stored = await chrome.storage.local.get(["yt_transcript", "yt_video_id"]);
+    if (stored.yt_transcript && stored.yt_video_id === videoId && stored.yt_transcript.length > 50) {
+      return stored.yt_transcript;
+    }
+  } catch {}
+
+  // Method 2: Ask the content script (it may have a newer version)
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !tab.url || !tab.url.includes("youtube.com")) return null;
-
-    // Step 1: Inject into the YouTube tab to find caption URL
-    // Must use world: "MAIN" to access YouTube's JS variables
-    // YouTube is a SPA so data lives in JS state, not in the HTML
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      world: "MAIN",
-      func: () => {
-        function findCaptionUrl() {
-          // Source 1: ytInitialPlayerResponse (set on first page load)
-          try {
-            const p = window.ytInitialPlayerResponse;
-            const tracks = p?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-            if (tracks && tracks.length > 0) {
-              for (const t of tracks) {
-                if (t.languageCode?.startsWith("en")) return t.baseUrl;
-              }
-              return tracks[0].baseUrl;
-            }
-          } catch {}
-
-          // Source 2: ytd-watch-flexy Polymer element (works after SPA nav)
-          try {
-            const flexy = document.querySelector("ytd-watch-flexy");
-            const pr = flexy?.__data?.playerResponse || flexy?.playerResponse;
-            const tracks = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-            if (tracks && tracks.length > 0) {
-              for (const t of tracks) {
-                if (t.languageCode?.startsWith("en")) return t.baseUrl;
-              }
-              return tracks[0].baseUrl;
-            }
-          } catch {}
-
-          // Source 3: ytplayer.config
-          try {
-            const cfg = window.ytplayer?.config?.args;
-            const raw = cfg?.raw_player_response || (cfg?.player_response ? JSON.parse(cfg.player_response) : null);
-            const tracks = raw?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-            if (tracks && tracks.length > 0) {
-              for (const t of tracks) {
-                if (t.languageCode?.startsWith("en")) return t.baseUrl;
-              }
-              return tracks[0].baseUrl;
-            }
-          } catch {}
-
-          // Source 4: Scan script tags for captionTracks
-          try {
-            const scripts = document.querySelectorAll("script");
-            for (const s of scripts) {
-              const text = s.textContent;
-              if (!text || !text.includes("captionTracks")) continue;
-              const marker = '"captionTracks":';
-              const idx = text.indexOf(marker);
-              if (idx === -1) continue;
-              let start = idx + marker.length;
-              while (start < text.length && text[start] !== "[") start++;
-              let depth = 0, end = start;
-              for (let i = start; i < Math.min(start + 5000, text.length); i++) {
-                if (text[i] === "[") depth++;
-                else if (text[i] === "]") depth--;
-                if (depth === 0) { end = i + 1; break; }
-              }
-              const tracks = JSON.parse(text.substring(start, end));
-              if (tracks && tracks.length > 0) {
-                for (const t of tracks) {
-                  if (t.languageCode?.startsWith("en")) return t.baseUrl;
-                }
-                return tracks[0].baseUrl;
-              }
-            }
-          } catch {}
-
-          return null;
-        }
-        return findCaptionUrl();
-      },
-    });
-
-    const captionUrl = results?.[0]?.result;
-    if (!captionUrl) {
-      console.warn("No caption URL found via any method");
-      return null;
-    }
-
-    // Step 2: Fetch the captions XML
-    const resp = await fetch(captionUrl);
-    const text = await resp.text();
-
-    if (text.includes("<text")) {
-      const snippets = [];
-      const tags = text.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
-      for (const tag of tags) {
-        const inner = tag.replace(/<[^>]+>/g, "")
-          .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-          .replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
-        if (inner) snippets.push(inner);
+    if (tab && tab.url && tab.url.includes("youtube.com")) {
+      const response = await chrome.tabs.sendMessage(tab.id, { type: "GET_TRANSCRIPT" });
+      if (response?.yt_transcript && response?.yt_video_id === videoId && response.yt_transcript.length > 50) {
+        return response.yt_transcript;
       }
-      if (snippets.length > 0) return snippets.join(" ");
     }
+  } catch {}
 
-    // Try json3
-    try {
-      const resp2 = await fetch(captionUrl + "&fmt=json3");
-      const data = await resp2.json();
-      const snippets = [];
-      for (const event of (data.events || [])) {
-        for (const seg of (event.segs || [])) {
-          const t = (seg.utf8 || "").trim();
-          if (t && t !== "\n") snippets.push(t);
+  // Method 3: If no transcript captured yet, enable CC to trigger caption loading
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.url && tab.url.includes("youtube.com")) {
+      // Click the CC button to trigger YouTube's timedtext fetch
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: () => {
+          const ccBtn = document.querySelector(".ytp-subtitles-button");
+          if (ccBtn && ccBtn.getAttribute("aria-pressed") !== "true") {
+            ccBtn.click();
+            // Click again after a moment to turn it back off (user won't notice)
+            setTimeout(() => ccBtn.click(), 2000);
+          }
+        },
+      });
+
+      // Wait for the intercept to capture the transcript
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const stored = await chrome.storage.local.get(["yt_transcript", "yt_video_id"]);
+        if (stored.yt_transcript && stored.yt_video_id === videoId && stored.yt_transcript.length > 50) {
+          return stored.yt_transcript;
         }
       }
-      if (snippets.length > 0) return snippets.join(" ");
-    } catch {}
-
+    }
   } catch (e) {
-    console.warn("Transcript extraction failed:", e);
+    console.warn("CC trigger failed:", e);
   }
 
   return null;
