@@ -260,10 +260,10 @@ async function fetchTranscriptClientSide(videoId) {
     if (tab && tab.url && tab.url.includes("youtube.com")) {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
+        world: "MAIN",
         func: () => {
           // ytInitialPlayerResponse is set by YouTube on the page
-          const player = window.ytInitialPlayerResponse ||
-            (typeof ytInitialPlayerResponse !== "undefined" ? ytInitialPlayerResponse : null);
+          const player = window.ytInitialPlayerResponse;
           if (!player) return null;
 
           const tracks =
@@ -340,13 +340,25 @@ async function fetchTranscriptClientSide(videoId) {
     if (!captionUrl) captionUrl = tracks[0].baseUrl;
     if (!captionUrl) return null;
 
-    const capsResp = await fetch(captionUrl + "&fmt=json3");
-    const data = await capsResp.json();
-    const snippets = [];
-    for (const event of (data.events || [])) {
-      for (const seg of (event.segs || [])) {
-        const text = (seg.utf8 || "").trim();
-        if (text && text !== "\n") snippets.push(text);
+    // Try json3 format first, then fall back to XML
+    let snippets = [];
+    try {
+      const capsResp = await fetch(captionUrl + "&fmt=json3");
+      const data = await capsResp.json();
+      for (const event of (data.events || [])) {
+        for (const seg of (event.segs || [])) {
+          const text = (seg.utf8 || "").trim();
+          if (text && text !== "\n") snippets.push(text);
+        }
+      }
+    } catch {
+      // json3 failed, try default XML format
+      const capsResp = await fetch(captionUrl);
+      const xml = await capsResp.text();
+      const textMatches = xml.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
+      for (const tag of textMatches) {
+        const inner = tag.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
+        if (inner) snippets.push(inner);
       }
     }
     return snippets.length > 0 ? snippets.join(" ") : null;
