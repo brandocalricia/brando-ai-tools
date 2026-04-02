@@ -255,38 +255,7 @@ async function loadPageContext() {
       }
     } catch {}
 
-    // ── Method 2a: MAIN world script for sites with SSR data (Newegg etc.) ──
-    if (tab.url.includes("newegg.com")) {
-      try {
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          world: "MAIN",
-          func: () => {
-            const s = window.__initialState__;
-            const list = s && s.SyncLoadReviews && s.SyncLoadReviews.SearchResult && s.SyncLoadReviews.SearchResult.CustomerReviewList;
-            const title = (s && s.ItemDetail && s.ItemDetail.ItemInfo && s.ItemDetail.ItemInfo.Title) || document.title;
-            const reviews = [];
-            if (list && Array.isArray(list)) {
-              const seen = new Set();
-              list.forEach((r) => {
-                const parts = [r.Comments, r.Pros ? "Pros: " + r.Pros : "", r.Cons ? "Cons: " + r.Cons : ""].filter(Boolean);
-                const t = parts.join(" ").trim().substring(0, 500);
-                if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: r.Rating ? String(r.Rating) : null }); }
-              });
-            }
-            return { product: { name: title, url: location.href }, reviews };
-          },
-        });
-        if (results && results[0]?.result?.reviews?.length > 0) {
-          lastReviews = results[0].result.reviews;
-          lastProductInfo = results[0].result.product;
-          showProductInfo(lastProductInfo, tab.url, lastReviews.length);
-          return;
-        }
-      } catch {}
-    }
-
-    // ── Method 2b: Inject sync scraper for sites where content script didn't run ──
+    // ── Method 2: Inject sync scraper for sites where content script didn't run ──
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -373,6 +342,77 @@ async function loadPageContext() {
         return;
       }
     } catch {}
+
+    // ── Method 4: MAIN world SSR data (for sites like Newegg that store reviews in JS globals) ──
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: () => {
+          const reviews = [];
+          const seen = new Set();
+          let title = document.title;
+
+          // Newegg __initialState__
+          if (window.__initialState__) {
+            const s = window.__initialState__;
+            const list = s.SyncLoadReviews && s.SyncLoadReviews.SearchResult && s.SyncLoadReviews.SearchResult.CustomerReviewList;
+            if (list && Array.isArray(list)) {
+              list.forEach((r) => {
+                const parts = [r.Comments, r.Pros ? "Pros: " + r.Pros : "", r.Cons ? "Cons: " + r.Cons : ""].filter(Boolean);
+                const t = parts.join(" ").trim().substring(0, 500);
+                if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: r.Rating ? String(r.Rating) : null }); }
+              });
+            }
+            if (s.ItemDetail && s.ItemDetail.ItemInfo && s.ItemDetail.ItemInfo.Title) title = s.ItemDetail.ItemInfo.Title;
+          }
+
+          // Next.js __NEXT_DATA__ — look for reviews in pageProps
+          if (reviews.length === 0 && window.__NEXT_DATA__ && window.__NEXT_DATA__.props) {
+            const pp = window.__NEXT_DATA__.props.pageProps || {};
+            const searchReviews = (obj, depth) => {
+              if (depth > 4 || !obj || typeof obj !== "object") return;
+              if (Array.isArray(obj) && obj.length > 0 && obj[0] && (obj[0].reviewBody || obj[0].body || obj[0].text || obj[0].comment || obj[0].Comments)) {
+                obj.forEach((r) => {
+                  const t = (r.reviewBody || r.body || r.text || r.comment || r.Comments || "").substring(0, 500);
+                  if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: r.rating || r.Rating || r.score || null }); }
+                });
+                return;
+              }
+              for (const k of Object.keys(obj)) {
+                if (k.toLowerCase().includes("review") && Array.isArray(obj[k])) { searchReviews(obj[k], depth + 1); if (reviews.length > 0) return; }
+              }
+              for (const k of Object.keys(obj)) {
+                if (typeof obj[k] === "object") { searchReviews(obj[k], depth + 1); if (reviews.length > 0) return; }
+              }
+            };
+            searchReviews(pp, 0);
+            if (pp.product && pp.product.name) title = pp.product.name;
+          }
+
+          return { product: { name: title, url: location.href }, reviews };
+        },
+      });
+      if (results && results[0]?.result?.reviews?.length > 0) {
+        lastReviews = results[0].result.reviews;
+        lastProductInfo = results[0].result.product;
+        showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+        return;
+      }
+    } catch {}
+
+    // ── Method 5: Scroll page to trigger lazy-loaded reviews, then re-scrape ──
+    if (isKnownShoppingSite(tab.url)) {
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, { type: "SCROLL_AND_SCRAPE" });
+        if (response && response.reviews && response.reviews.length > 0) {
+          lastReviews = response.reviews;
+          lastProductInfo = response.product;
+          showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+          return;
+        }
+      } catch {}
+    }
 
     // ── Fallback: known shopping site with no reviews yet ──
     if (isKnownShoppingSite(tab.url)) {

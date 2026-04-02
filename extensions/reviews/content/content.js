@@ -506,6 +506,84 @@ async function handleBadgeClick() {
   chrome.runtime.sendMessage({ type: "OPEN_POPUP" });
 }
 
+// ── SSR data extraction (runs in page main world via injected script) ────────
+
+function extractSSRData() {
+  return new Promise((resolve) => {
+    const existing = document.getElementById("brando-ssr-data");
+    if (existing) { resolve(existing.textContent); return; }
+
+    const script = document.createElement("script");
+    script.textContent = `
+      (function() {
+        var reviews = [];
+        var title = "";
+
+        // Newegg __initialState__
+        if (window.__initialState__) {
+          var s = window.__initialState__;
+          var list = s.SyncLoadReviews && s.SyncLoadReviews.SearchResult && s.SyncLoadReviews.SearchResult.CustomerReviewList;
+          if (list) reviews = list;
+          if (s.ItemDetail && s.ItemDetail.ItemInfo) title = s.ItemDetail.ItemInfo.Title || "";
+        }
+
+        // Next.js __NEXT_DATA__
+        if (reviews.length === 0 && window.__NEXT_DATA__) {
+          var nd = JSON.stringify(window.__NEXT_DATA__);
+          title = title || (window.__NEXT_DATA__.props && window.__NEXT_DATA__.props.pageProps && window.__NEXT_DATA__.props.pageProps.product && window.__NEXT_DATA__.props.pageProps.product.name) || "";
+        }
+
+        var el = document.createElement("div");
+        el.id = "brando-ssr-data";
+        el.style.display = "none";
+        el.textContent = JSON.stringify({ reviews: reviews, title: title });
+        document.body.appendChild(el);
+      })();
+    `;
+    document.documentElement.appendChild(script);
+    script.remove();
+
+    setTimeout(() => {
+      const dataEl = document.getElementById("brando-ssr-data");
+      resolve(dataEl ? dataEl.textContent : "{}");
+    }, 50);
+  });
+}
+
+// ── Scroll and scrape (for lazy-loaded reviews) ──────────────────────────────
+
+async function scrollAndScrape() {
+  const site = detectSite();
+
+  // Step 1: Scroll progressively to trigger lazy-loading
+  const scrollPositions = [0.3, 0.5, 0.7, 0.85, 1.0];
+  for (const pos of scrollPositions) {
+    window.scrollTo(0, document.body.scrollHeight * pos);
+    await new Promise((r) => setTimeout(r, 800));
+  }
+
+  // Step 2: Wait for content to render
+  await new Promise((r) => setTimeout(r, 1500));
+
+  // Step 3: Scrape after lazy content has loaded
+  const { reviews, product } = await scrapeAllAsync(site);
+
+  if (reviews.length > 0) {
+    chrome.storage.local.set({
+      scrapedReviews: reviews,
+      scrapedProduct: product,
+      scrapedSite: site,
+      scrapedUrl: location.href,
+    });
+    injectBadge(reviews.length);
+  }
+
+  // Scroll back to top
+  window.scrollTo(0, 0);
+
+  return { reviews, product, site };
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 async function init() {
@@ -513,9 +591,6 @@ async function init() {
   if (!isProductPage(site)) return;
 
   const { reviews, product } = await scrapeAllAsync(site);
-
-  // For generic sites, only proceed if we actually found reviews
-  if (site === "generic" && reviews.length === 0) return;
 
   // Persist for popup to read
   chrome.storage.local.set({
@@ -534,7 +609,45 @@ async function init() {
 
   if (reviews.length > 0) {
     injectBadge(reviews.length);
+  } else {
+    // No reviews on first scrape — start observing for lazy-loaded reviews
+    startReviewObserver(site);
   }
+}
+
+// ── MutationObserver for lazy-loaded reviews ─────────────────────────────────
+
+let reviewObserver = null;
+
+function startReviewObserver(site) {
+  if (reviewObserver) return; // already watching
+
+  let debounceTimer = null;
+  reviewObserver = new MutationObserver(() => {
+    // Debounce: wait for mutations to settle
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(async () => {
+      const { reviews, product } = await scrapeAllAsync(site);
+      if (reviews.length > 0) {
+        chrome.storage.local.set({
+          scrapedReviews: reviews,
+          scrapedProduct: product,
+          scrapedSite: site,
+          scrapedUrl: location.href,
+        });
+        injectBadge(reviews.length);
+        // Stop observing once we found reviews
+        if (reviewObserver) { reviewObserver.disconnect(); reviewObserver = null; }
+      }
+    }, 1000);
+  });
+
+  reviewObserver.observe(document.body, { childList: true, subtree: true });
+
+  // Auto-stop after 30 seconds to avoid performance issues
+  setTimeout(() => {
+    if (reviewObserver) { reviewObserver.disconnect(); reviewObserver = null; }
+  }, 30000);
 }
 
 // Listen for scrape requests from popup
@@ -550,11 +663,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       });
       sendResponse({ reviews, product, site });
     }).catch(() => {
-      // Fallback: return sync scrape results if async fails
       const { reviews, product } = scrapeAll(site);
       sendResponse({ reviews, product, site });
     });
-    return true; // keep message channel open for async
+    return true;
+  }
+  if (msg.type === "SCROLL_AND_SCRAPE") {
+    scrollAndScrape().then(({ reviews, product, site }) => {
+      sendResponse({ reviews, product, site });
+    }).catch(() => {
+      const site = detectSite();
+      const { reviews, product } = scrapeAll(site);
+      sendResponse({ reviews, product, site });
+    });
+    return true;
   }
 });
 
@@ -566,7 +688,8 @@ const navObserver = new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
     removeBadge();
-    setTimeout(init, 1500); // wait for new page content
+    if (reviewObserver) { reviewObserver.disconnect(); reviewObserver = null; }
+    setTimeout(init, 1500);
   }
 });
 navObserver.observe(document.body, { childList: true, subtree: true });
