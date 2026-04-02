@@ -233,35 +233,18 @@ async function loadPageContext() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url) return showNoProduct();
 
-    // ── Best Buy: popup fetches reviews page directly ──
-    if (tab.url.includes("bestbuy.com") && /\/product\/|\/site\//.test(tab.url)) {
-      try {
-        const baseUrl = tab.url.replace(/#.*$/, "").replace(/\/reviews.*$/, "");
-        const productName = tab.title.replace(/ - Best Buy$/, "").trim() || "Best Buy product";
-        lastProductInfo = { name: productName, url: tab.url };
-
-        const resp = await fetch(baseUrl + "/reviews?pageSize=20");
-        const html = await resp.text();
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        const list = doc.getElementById("stand-alone-review-list") || doc.getElementById("review-list");
-        const reviews = [];
-        if (list) {
-          list.querySelectorAll(":scope > li").forEach((li) => {
-            const body = li.querySelector("p[id^='ugc-line-clamp']") || li.querySelector("p.body-copy-lg");
-            const ratingEl = li.querySelector("span.sr-only");
-            if (body) {
-              const t = (body.textContent || "").trim().substring(0, 500);
-              if (t.length > 20) reviews.push({ text: t, rating: ratingEl ? ratingEl.textContent.trim() : null });
-            }
-          });
-        }
-        lastReviews = reviews;
+    // ── Method 0: Read from chrome.storage.local (content script already stored reviews on page load) ──
+    try {
+      const stored = await chrome.storage.local.get(["scrapedReviews", "scrapedProduct", "scrapedSite", "scrapedUrl"]);
+      if (stored.scrapedUrl === tab.url && stored.scrapedReviews && stored.scrapedReviews.length > 0) {
+        lastReviews = stored.scrapedReviews;
+        lastProductInfo = stored.scrapedProduct;
         showProductInfo(lastProductInfo, tab.url, lastReviews.length);
         return;
-      } catch {}
-    }
+      }
+    } catch {}
 
-    // ── Other sites: content script message ──
+    // ── Method 1: Ask content script to scrape (triggers async fetch for Best Buy etc.) ──
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_REVIEWS" });
       if (response && response.product && response.reviews && response.reviews.length > 0) {
@@ -272,7 +255,7 @@ async function loadPageContext() {
       }
     } catch {}
 
-    // ── Other sites: inject sync scraper ──
+    // ── Method 2: Inject sync scraper for sites where content script didn't run ──
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -299,9 +282,11 @@ async function loadPageContext() {
             const star = document.querySelector('#acrPopover .a-icon-alt, [data-hook="rating-out-of-text"]');
             if (agg) reviews.push({ text: `Overall: ${star ? star.innerText.trim() + " — " : ""}${agg.innerText.trim()}`, rating: star ? star.innerText.trim() : null });
           }
-          // Generic reviews
+          // Generic reviews (skip bestbuy.com data-testid which grabs comparison cards)
           if (reviews.length === 0) {
-            const sels = ['[itemprop="review"]', '[itemprop="reviewBody"]', '.review', '.customer-review', '.product-review', '[class*="review-text"]', '[class*="review-body"]', '[data-testid*="review"]'];
+            const host = location.hostname;
+            const sels = ['[itemprop="review"]', '[itemprop="reviewBody"]', '.review', '.customer-review', '.product-review', '[class*="review-text"]', '[class*="review-body"]'];
+            if (!host.includes("bestbuy.com")) sels.push('[data-testid*="review"]');
             for (const sel of sels) {
               document.querySelectorAll(sel).forEach((el) => {
                 const t = (el.querySelector('[class*="body"], [class*="text"], p') || el).innerText.trim().substring(0, 500);
@@ -324,7 +309,18 @@ async function loadPageContext() {
       }
     } catch {}
 
-    // ── Fallback ──
+    // ── Method 3: Re-check storage (content script message may have updated it) ──
+    try {
+      const stored = await chrome.storage.local.get(["scrapedReviews", "scrapedProduct", "scrapedUrl"]);
+      if (stored.scrapedUrl === tab.url && stored.scrapedReviews && stored.scrapedReviews.length > 0) {
+        lastReviews = stored.scrapedReviews;
+        lastProductInfo = stored.scrapedProduct;
+        showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+        return;
+      }
+    } catch {}
+
+    // ── Fallback: known shopping site with no reviews yet ──
     if (isKnownShoppingSite(tab.url)) {
       lastReviews = [];
       lastProductInfo = { name: tab.title || "Product page", url: tab.url };

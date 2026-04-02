@@ -191,27 +191,77 @@ function scrapeBestBuyProduct() {
   return { name, url: location.href };
 }
 
-function scrapeWalmartReviews() {
+function parseWalmartReviewsFromDoc(doc) {
   const reviews = [];
-  document.querySelectorAll('[itemprop="review"], [data-testid="review-card"], .Grid-col').forEach((el) => {
-    const body =
-      el.querySelector('[itemprop="reviewBody"]') ||
-      el.querySelector("[data-testid='review-text'], span[class*='review']");
-    const rating = el.querySelector('[itemprop="ratingValue"]');
-    if (body) {
-      reviews.push({
-        text: body.innerText.trim().substring(0, 500),
-        rating: rating ? rating.getAttribute("content") || rating.innerText : null,
-      });
+  const seen = new Set();
+  // New Walmart layout: enhanced-review-content contains review text in <p> tags
+  doc.querySelectorAll('[data-testid="enhanced-review-content"]').forEach((el) => {
+    const p = el.querySelector("p");
+    if (p) {
+      const text = p.innerText.trim().substring(0, 500);
+      if (text.length > 20 && !seen.has(text)) {
+        seen.add(text);
+        reviews.push({ text, rating: null });
+      }
     }
   });
+  // Fallback: old Walmart layout
+  if (reviews.length === 0) {
+    doc.querySelectorAll('[itemprop="review"], [data-testid="review-card"]').forEach((el) => {
+      const body =
+        el.querySelector('[itemprop="reviewBody"]') ||
+        el.querySelector("[data-testid='review-text']");
+      const rating = el.querySelector('[itemprop="ratingValue"]');
+      if (body) {
+        const text = body.innerText.trim().substring(0, 500);
+        if (text.length > 20 && !seen.has(text)) {
+          seen.add(text);
+          reviews.push({
+            text,
+            rating: rating ? rating.getAttribute("content") || rating.innerText : null,
+          });
+        }
+      }
+    });
+  }
+  return reviews;
+}
+
+function scrapeWalmartReviews() {
+  return parseWalmartReviewsFromDoc(document);
+}
+
+async function scrapeWalmartReviewsAsync() {
+  let reviews = scrapeWalmartReviews();
+  if (reviews.length > 5) return reviews;
+
+  // Extract product ID from URL: /ip/product-name/ID or /ip/ID
+  const match = location.pathname.match(/\/ip\/(?:.*\/)?(\d+)/);
+  if (!match) return reviews;
+  const productId = match[1];
+
+  try {
+    // Fetch page 1 and page 2 of reviews to get ~20
+    const [resp1, resp2] = await Promise.all([
+      fetch(`https://www.walmart.com/reviews/product/${productId}?page=1`),
+      fetch(`https://www.walmart.com/reviews/product/${productId}?page=2`),
+    ]);
+    const [html1, html2] = await Promise.all([resp1.text(), resp2.text()]);
+    const doc1 = new DOMParser().parseFromString(html1, "text/html");
+    const doc2 = new DOMParser().parseFromString(html2, "text/html");
+    const r1 = parseWalmartReviewsFromDoc(doc1);
+    const r2 = parseWalmartReviewsFromDoc(doc2);
+    const fetched = [...r1, ...r2];
+    if (fetched.length > reviews.length) reviews = fetched;
+  } catch {}
   return reviews;
 }
 
 function scrapeWalmartProduct() {
   const name =
-    document.querySelector("[itemprop='name'] h1, h1[itemprop='name']")?.innerText.trim() ||
-    document.querySelector("h1.f3")?.innerText.trim() ||
+    document.querySelector("h1[itemprop='name']")?.innerText.trim() ||
+    document.querySelector("[itemprop='name'] h1")?.innerText.trim() ||
+    document.querySelector("h1")?.innerText.trim() ||
     document.title;
   return { name, url: location.href };
 }
@@ -291,6 +341,9 @@ async function scrapeAllAsync(site) {
   if (site === "bestbuy") {
     return { reviews: await scrapeBestBuyReviewsAsync(), product: scrapeBestBuyProduct() };
   }
+  if (site === "walmart") {
+    return { reviews: await scrapeWalmartReviewsAsync(), product: scrapeWalmartProduct() };
+  }
   return scrapeAll(site);
 }
 
@@ -323,7 +376,7 @@ function removeBadge() {
   if (existing) existing.remove();
 }
 
-function handleBadgeClick() {
+async function handleBadgeClick() {
   const btn = document.getElementById(BADGE_BTN_ID);
   if (btn) {
     btn.textContent = "Opening Brando...";
@@ -338,7 +391,7 @@ function handleBadgeClick() {
   }
   // Re-scrape on click to get the freshest data before user opens popup
   const site = detectSite();
-  const { reviews, product } = scrapeAll(site);
+  const { reviews, product } = await scrapeAllAsync(site);
   chrome.storage.local.set({
     scrapedReviews: reviews,
     scrapedProduct: product,
