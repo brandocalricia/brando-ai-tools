@@ -1,67 +1,93 @@
-// This script runs in the MAIN world to intercept YouTube's timedtext fetch requests.
-// YouTube requires a POT (Proof of Origin Token) to fetch captions, which is only
-// available in the player's internal request. We capture the response here.
+// This script runs in the MAIN world on YouTube pages.
+// It extracts captions by finding YouTube's timedtext URL from performance entries
+// (which includes the required POT token), then re-fetches and parses the transcript.
 
 (function () {
-  const originalFetch = window.fetch;
-
-  window.fetch = function (...args) {
-    const request = args[0];
-    const url = typeof request === "string" ? request : request?.url || "";
-
-    // Intercept timedtext caption requests
-    if (url.includes("/api/timedtext") && url.includes("lang=")) {
-      return originalFetch.apply(this, args).then(async (response) => {
-        try {
-          const clone = response.clone();
-          const text = await clone.text();
-          if (text && text.length > 50) {
-            // Parse the transcript from JSON3 or XML format
-            let transcript = "";
-            try {
-              const data = JSON.parse(text);
-              const snippets = [];
-              for (const event of (data.events || [])) {
-                for (const seg of (event.segs || [])) {
-                  const t = (seg.utf8 || "").trim();
-                  if (t && t !== "\n") snippets.push(t);
-                }
-              }
-              transcript = snippets.join(" ");
-            } catch {
-              // Try XML
-              const matches = text.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
-              const snippets = [];
-              for (const tag of matches) {
-                const inner = tag.replace(/<[^>]+>/g, "")
-                  .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
-                  .replace(/&gt;/g, ">").replace(/&#39;/g, "'")
-                  .replace(/&quot;/g, '"').trim();
-                if (inner) snippets.push(inner);
-              }
-              transcript = snippets.join(" ");
-            }
-
-            if (transcript.length > 50) {
-              // Extract video ID from the URL
-              const urlParams = new URLSearchParams(url.split("?")[1] || "");
-              const videoId = urlParams.get("v") || "";
-
-              // Store via custom event so the content script (isolated world) can pick it up
-              window.dispatchEvent(
-                new CustomEvent("brando-transcript-captured", {
-                  detail: { videoId, transcript, timestamp: Date.now() },
-                })
-              );
-            }
-          }
-        } catch (e) {
-          // Silently ignore errors — don't break YouTube
+  function parseTranscript(text) {
+    if (!text || text.length < 50) return null;
+    try {
+      const data = JSON.parse(text);
+      const snippets = [];
+      for (const event of (data.events || [])) {
+        for (const seg of (event.segs || [])) {
+          const t = (seg.utf8 || "").trim();
+          if (t && t !== "\n") snippets.push(t);
         }
-        return response;
-      });
+      }
+      if (snippets.length > 0) return snippets.join(" ");
+    } catch {}
+    const matches = text.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
+    if (matches.length > 0) {
+      const snippets = [];
+      for (const tag of matches) {
+        const inner = tag.replace(/<[^>]+>/g, "")
+          .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">").replace(/&#39;/g, "'")
+          .replace(/&quot;/g, '"').trim();
+        if (inner) snippets.push(inner);
+      }
+      if (snippets.length > 0) return snippets.join(" ");
     }
+    return null;
+  }
 
-    return originalFetch.apply(this, args);
-  };
+  function extractAndStore() {
+    try {
+      const entries = performance.getEntriesByType("resource");
+      const ttEntry = entries.find(e => e.name.includes("/api/timedtext") && e.name.includes("v="));
+      if (!ttEntry) return false;
+
+      const urlParams = new URLSearchParams(ttEntry.name.split("?")[1] || "");
+      const videoId = urlParams.get("v") || "";
+
+      fetch(ttEntry.name)
+        .then(r => r.text())
+        .then(text => {
+          const transcript = parseTranscript(text);
+          if (transcript && transcript.length > 50) {
+            window.dispatchEvent(
+              new CustomEvent("brando-transcript-captured", {
+                detail: { videoId, transcript, timestamp: Date.now() },
+              })
+            );
+          }
+        })
+        .catch(() => {});
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Try immediately, then poll every 2s for up to 30s
+  // (YouTube may not have loaded captions yet on first try)
+  if (!extractAndStore()) {
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      if (extractAndStore() || attempts > 15) {
+        clearInterval(interval);
+      }
+    }, 2000);
+  }
+
+  // Also watch for SPA navigation (YouTube changes videos without page reload)
+  let lastUrl = location.href;
+  const observer = new MutationObserver(() => {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      // Wait for new video's captions to load
+      setTimeout(() => {
+        let attempts = 0;
+        const interval = setInterval(() => {
+          attempts++;
+          if (extractAndStore() || attempts > 15) {
+            clearInterval(interval);
+          }
+        }, 2000);
+      }, 3000);
+    }
+  });
+  observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
 })();

@@ -273,35 +273,63 @@ async function fetchTranscriptClientSide(videoId) {
     }
   } catch {}
 
-  // Method 3: If no transcript captured yet, enable CC to trigger caption loading
+  // Method 3: Inject script to read timedtext URL from performance entries
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab && tab.url && tab.url.includes("youtube.com")) {
-      // Click the CC button to trigger YouTube's timedtext fetch
-      await chrome.scripting.executeScript({
+      const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: "MAIN",
-        func: () => {
-          const ccBtn = document.querySelector(".ytp-subtitles-button");
-          if (ccBtn && ccBtn.getAttribute("aria-pressed") !== "true") {
-            ccBtn.click();
-            // Click again after a moment to turn it back off (user won't notice)
-            setTimeout(() => ccBtn.click(), 2000);
-          }
+        func: (vid) => {
+          return new Promise((resolve) => {
+            function tryExtract() {
+              const entries = performance.getEntriesByType("resource");
+              const ttEntry = entries.find(e => e.name.includes("/api/timedtext") && e.name.includes("v="));
+              if (!ttEntry) return null;
+              return ttEntry.name;
+            }
+
+            const url = tryExtract();
+            if (!url) { resolve(null); return; }
+
+            fetch(url)
+              .then(r => r.text())
+              .then(text => {
+                try {
+                  const data = JSON.parse(text);
+                  const snippets = [];
+                  for (const event of (data.events || [])) {
+                    for (const seg of (event.segs || [])) {
+                      const t = (seg.utf8 || "").trim();
+                      if (t && t !== "\n") snippets.push(t);
+                    }
+                  }
+                  resolve(snippets.length > 0 ? snippets.join(" ") : null);
+                } catch {
+                  // Try XML
+                  const matches = text.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
+                  const snippets = [];
+                  for (const tag of matches) {
+                    const inner = tag.replace(/<[^>]+>/g, "")
+                      .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+                      .replace(/&gt;/g, ">").replace(/&#39;/g, "'")
+                      .replace(/&quot;/g, '"').trim();
+                    if (inner) snippets.push(inner);
+                  }
+                  resolve(snippets.length > 0 ? snippets.join(" ") : null);
+                }
+              })
+              .catch(() => resolve(null));
+          });
         },
+        args: [videoId],
       });
 
-      // Wait for the intercept to capture the transcript
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        const stored = await chrome.storage.local.get(["yt_transcript", "yt_video_id"]);
-        if (stored.yt_transcript && stored.yt_video_id === videoId && stored.yt_transcript.length > 50) {
-          return stored.yt_transcript;
-        }
-      }
+      const transcript = results?.[0]?.result;
+      if (transcript && transcript.length > 50) return transcript;
     }
   } catch (e) {
-    console.warn("CC trigger failed:", e);
+    console.warn("Performance entries method failed:", e);
   }
 
   return null;
