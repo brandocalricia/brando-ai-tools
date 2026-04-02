@@ -391,6 +391,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         scrapedUrl: location.href,
       });
       sendResponse({ reviews, product, site });
+    }).catch(() => {
+      // Fallback: return sync scrape results if async fails
+      const { reviews, product } = scrapeAll(site);
+      sendResponse({ reviews, product, site });
     });
     return true; // keep message channel open for async
   }

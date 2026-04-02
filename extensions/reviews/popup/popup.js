@@ -233,7 +233,20 @@ async function loadPageContext() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url) return showNoProduct();
 
-    // Method 1: Try content script message
+    // Method 0: Read from chrome.storage (content script already scraped on page load)
+    try {
+      const stored = await chrome.storage.local.get(["scrapedReviews", "scrapedProduct", "scrapedSite", "scrapedUrl"]);
+      if (stored.scrapedUrl && stored.scrapedProduct && tab.url.includes(new URL(stored.scrapedUrl).pathname.split("/").slice(0, 4).join("/"))) {
+        lastReviews = stored.scrapedReviews || [];
+        lastProductInfo = stored.scrapedProduct;
+        if (lastReviews.length > 0) {
+          showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+          return;
+        }
+      }
+    } catch {}
+
+    // Method 1: Try content script message (re-scrape)
     let needsMoreReviews = false;
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_REVIEWS" });
