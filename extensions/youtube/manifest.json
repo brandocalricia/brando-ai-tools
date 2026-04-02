@@ -3,7 +3,7 @@
   "name": "Brando for YouTube",
   "version": "1.0.0",
   "description": "Summarize any YouTube video in seconds. Get key takeaways, timestamps, and a TL;DR.",
-  "permissions": ["activeTab", "storage"],
+  "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": ["https://www.youtube.com/*", "https://youtu.be/*", "https://brando-ai-tools-production.up.railway.app/*"],
   "action": {
     "default_popup": "popup/popup.html",

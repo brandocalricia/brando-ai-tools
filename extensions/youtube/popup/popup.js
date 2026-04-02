@@ -254,47 +254,107 @@ function extractVideoId(url) {
 }
 
 async function fetchTranscriptClientSide(videoId) {
-  // Fetch the YouTube watch page to find caption track URLs
-  const pageResp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-    credentials: "include",
-  });
-  const html = await pageResp.text();
-
-  // Extract captionTracks from the page's player config
-  const trackMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
-  if (!trackMatch) return null;
-
-  let tracks;
+  // Method 1: Inject script into the YouTube tab to get captions from player data
   try {
-    tracks = JSON.parse(trackMatch[1]);
-  } catch { return null; }
-  if (!tracks || tracks.length === 0) return null;
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.url && tab.url.includes("youtube.com")) {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          // ytInitialPlayerResponse is set by YouTube on the page
+          const player = window.ytInitialPlayerResponse ||
+            (typeof ytInitialPlayerResponse !== "undefined" ? ytInitialPlayerResponse : null);
+          if (!player) return null;
 
-  // Prefer English, fall back to first available
-  let captionUrl = null;
-  for (const track of tracks) {
-    if (track.languageCode && track.languageCode.startsWith("en")) {
-      captionUrl = track.baseUrl;
-      break;
+          const tracks =
+            player?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+          if (!tracks || tracks.length === 0) return null;
+
+          // Find English track, fall back to first
+          let url = null;
+          for (const t of tracks) {
+            if (t.languageCode && t.languageCode.startsWith("en")) {
+              url = t.baseUrl;
+              break;
+            }
+          }
+          if (!url) url = tracks[0].baseUrl;
+          return url;
+        },
+      });
+
+      const captionUrl = results?.[0]?.result;
+      if (captionUrl) {
+        const resp = await fetch(captionUrl + "&fmt=json3");
+        const data = await resp.json();
+        const snippets = [];
+        for (const event of (data.events || [])) {
+          for (const seg of (event.segs || [])) {
+            const text = (seg.utf8 || "").trim();
+            if (text && text !== "\n") snippets.push(text);
+          }
+        }
+        if (snippets.length > 0) return snippets.join(" ");
+      }
     }
+  } catch (e) {
+    console.warn("Method 1 (tab inject) failed:", e);
   }
-  if (!captionUrl) captionUrl = tracks[0].baseUrl;
-  if (!captionUrl) return null;
 
-  // Fetch captions as json3
-  const capsResp = await fetch(captionUrl + "&fmt=json3");
-  const data = await capsResp.json();
+  // Method 2: Fetch the watch page HTML and parse caption URLs
+  try {
+    const pageResp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      credentials: "include",
+    });
+    const html = await pageResp.text();
 
-  const events = data.events || [];
-  const snippets = [];
-  for (const event of events) {
-    const segs = event.segs || [];
-    for (const seg of segs) {
-      const text = (seg.utf8 || "").trim();
-      if (text && text !== "\n") snippets.push(text);
+    // Use a more robust extraction — find the full captionTracks array
+    const marker = '"captionTracks":';
+    const idx = html.indexOf(marker);
+    if (idx === -1) return null;
+
+    // Extract the JSON array by counting brackets
+    let start = idx + marker.length;
+    while (start < html.length && html[start] !== "[") start++;
+    if (start >= html.length) return null;
+
+    let depth = 0;
+    let end = start;
+    for (let i = start; i < html.length; i++) {
+      if (html[i] === "[") depth++;
+      else if (html[i] === "]") depth--;
+      if (depth === 0) { end = i + 1; break; }
     }
+
+    const tracksJson = html.substring(start, end);
+    const tracks = JSON.parse(tracksJson);
+    if (!tracks || tracks.length === 0) return null;
+
+    let captionUrl = null;
+    for (const t of tracks) {
+      if (t.languageCode && t.languageCode.startsWith("en")) {
+        captionUrl = t.baseUrl;
+        break;
+      }
+    }
+    if (!captionUrl) captionUrl = tracks[0].baseUrl;
+    if (!captionUrl) return null;
+
+    const capsResp = await fetch(captionUrl + "&fmt=json3");
+    const data = await capsResp.json();
+    const snippets = [];
+    for (const event of (data.events || [])) {
+      for (const seg of (event.segs || [])) {
+        const text = (seg.utf8 || "").trim();
+        if (text && text !== "\n") snippets.push(text);
+      }
+    }
+    return snippets.length > 0 ? snippets.join(" ") : null;
+  } catch (e) {
+    console.warn("Method 2 (page fetch) failed:", e);
   }
-  return snippets.length > 0 ? snippets.join(" ") : null;
+
+  return null;
 }
 
 async function summarize() {
