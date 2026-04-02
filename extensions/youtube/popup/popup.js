@@ -248,6 +248,55 @@ function setupButtons() {
   });
 }
 
+function extractVideoId(url) {
+  const match = url.match(/(?:v=|\/v\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
+async function fetchTranscriptClientSide(videoId) {
+  // Fetch the YouTube watch page to find caption track URLs
+  const pageResp = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+    credentials: "include",
+  });
+  const html = await pageResp.text();
+
+  // Extract captionTracks from the page's player config
+  const trackMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
+  if (!trackMatch) return null;
+
+  let tracks;
+  try {
+    tracks = JSON.parse(trackMatch[1]);
+  } catch { return null; }
+  if (!tracks || tracks.length === 0) return null;
+
+  // Prefer English, fall back to first available
+  let captionUrl = null;
+  for (const track of tracks) {
+    if (track.languageCode && track.languageCode.startsWith("en")) {
+      captionUrl = track.baseUrl;
+      break;
+    }
+  }
+  if (!captionUrl) captionUrl = tracks[0].baseUrl;
+  if (!captionUrl) return null;
+
+  // Fetch captions as json3
+  const capsResp = await fetch(captionUrl + "&fmt=json3");
+  const data = await capsResp.json();
+
+  const events = data.events || [];
+  const snippets = [];
+  for (const event of events) {
+    const segs = event.segs || [];
+    for (const seg of segs) {
+      const text = (seg.utf8 || "").trim();
+      if (text && text !== "\n") snippets.push(text);
+    }
+  }
+  return snippets.length > 0 ? snippets.join(" ") : null;
+}
+
 async function summarize() {
   const videoUrl = document.getElementById("video-url").value.trim();
   if (!videoUrl) {
@@ -262,11 +311,41 @@ async function summarize() {
     showUpgradePrompt();
     return;
   }
+
+  const videoId = extractVideoId(videoUrl);
+  if (!videoId) {
+    showError("Could not extract video ID from URL.");
+    return;
+  }
+
+  showLoading();
+  hideOutput();
+  hideError();
+  hideUpgradePrompt();
+  setButtonDisabled(true);
+
+  // Try fetching transcript from the browser first
+  let transcript = null;
+  try {
+    transcript = await fetchTranscriptClientSide(videoId);
+  } catch (e) {
+    console.warn("Client-side transcript fetch failed:", e);
+  }
+
   lastRequest = {
     video_url: videoUrl,
+    video_title: "",
     style: document.getElementById("summary-style").value,
     length: document.getElementById("summary-length").value,
   };
+
+  if (transcript) {
+    // Send transcript text directly — backend doesn't need to fetch it
+    lastRequest.transcript = transcript;
+  }
+
+  hideLoading();
+  setButtonDisabled(false);
   await callAPI(lastRequest);
 }
 
@@ -309,7 +388,11 @@ async function callAPI(request) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify({
+        video_url: request.video_url,
+        video_title: request.video_title || "",
+        transcript: request.transcript || "",
+      }),
     });
     if (response.status === 401) {
       await handleLogout();

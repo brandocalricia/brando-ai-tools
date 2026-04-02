@@ -18,6 +18,7 @@ claude = anthropic.Anthropic()
 class SummarizeRequest(BaseModel):
     video_url: str
     video_title: str = ""
+    transcript: str = ""
 
 
 class SummarizeResponse(BaseModel):
@@ -197,8 +198,13 @@ async def summarize(req: SummarizeRequest, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Video title must be under 200 characters.")
 
     try:
-        video_id = extract_video_id(req.video_url)
-        transcript = get_transcript(video_id)
+        # Use client-provided transcript if available, otherwise fetch server-side
+        if req.transcript and len(req.transcript) > 50:
+            transcript = req.transcript[:15000]  # cap length
+            logger.info(f"Using client-provided transcript ({len(transcript)} chars)")
+        else:
+            video_id = extract_video_id(req.video_url)
+            transcript = get_transcript(video_id)
         user_prompt = build_summarize_prompt(transcript, req.video_title)
 
         message = claude.messages.create(
