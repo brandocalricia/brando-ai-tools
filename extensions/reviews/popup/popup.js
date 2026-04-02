@@ -421,7 +421,7 @@ async function summarizeReviews() {
       },
       body: JSON.stringify({
         product_title: lastProductInfo?.name || "",
-        reviews_text: lastReviews,
+        reviews_text: lastReviews.map((r) => r.text || r).join("\n\n"),
         product_url: lastProductInfo?.url || "",
       }),
     });
