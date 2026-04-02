@@ -234,17 +234,23 @@ async function loadPageContext() {
     if (!tab || !tab.url) return showNoProduct();
 
     // Method 1: Try content script message
+    let needsMoreReviews = false;
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_REVIEWS" });
       if (response && response.product) {
         lastReviews = response.reviews || [];
         lastProductInfo = response.product;
-        showProductInfo(lastProductInfo, tab.url, lastReviews.length);
-        return;
+        // If Best Buy returned few reviews, try Method 2 for more (lazy-loaded reviews)
+        if (tab.url.includes("bestbuy.com") && lastReviews.length <= 5) {
+          needsMoreReviews = true;
+        } else {
+          showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+          return;
+        }
       }
     } catch {}
 
-    // Method 2: Inject a scraper via chrome.scripting (works even if content script didn't load)
+    // Method 2: Inject a scraper via chrome.scripting (works even if content script didn't load, or Best Buy needs more reviews)
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
