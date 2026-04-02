@@ -136,7 +136,7 @@ def get_transcript_via_ytdlp(video_id: str) -> str | None:
         return " ".join(snippets) if snippets else None
 
     except Exception as e:
-        logger.warning(f"yt-dlp failed: {e}")
+        logger.warning(f"yt-dlp failed: {type(e).__name__}")
         return None
 
 
@@ -154,14 +154,14 @@ def get_transcript_via_library(video_id: str) -> str | None:
         if snippets:
             return " ".join(snippets)
     except Exception as e:
-        logger.warning(f"youtube-transcript-api fetch() failed: {e}")
+        logger.warning(f"youtube-transcript-api fetch() failed: {type(e).__name__}")
 
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
         return " ".join([entry["text"] for entry in transcript_list])
     except Exception as e:
-        logger.warning(f"youtube-transcript-api get_transcript() failed: {e}")
+        logger.warning(f"youtube-transcript-api get_transcript() failed: {type(e).__name__}")
 
     return None
 
@@ -225,5 +225,5 @@ async def summarize(req: SummarizeRequest, user=Depends(get_current_user)):
     except anthropic.APIError:
         raise HTTPException(status_code=502, detail="AI service temporarily unavailable.")
     except Exception as e:
-        logger.error(f"YouTube summarize error: {e}")
+        logger.error(f"YouTube summarize error: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Something went wrong.")

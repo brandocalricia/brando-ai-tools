@@ -1,7 +1,6 @@
 import os
 import logging
 import time
-from collections import defaultdict
 from datetime import datetime, date
 
 import httpx
@@ -15,6 +14,7 @@ from core.auth import auth_client, db_request, get_current_user, get_user_plan, 
 from core.usage import get_usage_today
 from core.config import (
     SUPABASE_URL, SUPABASE_SERVICE_KEY,
+    STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
     STRIPE_PRICE_ID, STRIPE_PRICE_IDS, ALLOWED_ORIGINS,
     FREE_DAILY_LIMITS,
 )
@@ -76,8 +76,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+stripe.api_key = STRIPE_SECRET_KEY
 
 # Import and include route modules
 from routes.linkedin import router as linkedin_router
@@ -273,7 +272,7 @@ async def stripe_webhook(request: Request):
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
     except (ValueError, stripe.SignatureVerificationError) as e:
-        logger.error(f"Webhook signature verification failed: {e}")
+        logger.error(f"Webhook signature verification failed: {type(e).__name__}")
         raise HTTPException(status_code=400, detail="Invalid webhook signature.")
 
     event_type = event["type"] if isinstance(event, dict) else event.type

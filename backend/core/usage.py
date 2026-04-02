@@ -1,5 +1,7 @@
 import logging
+import re
 from datetime import date
+from fastapi import HTTPException
 from core.auth import db_request, is_pro_for
 from core.config import FREE_DAILY_LIMITS, SUPABASE_URL, SUPABASE_SERVICE_KEY
 import httpx
@@ -9,8 +11,19 @@ logger = logging.getLogger(__name__)
 # Pro users get generous but finite daily limits to prevent cost abuse
 PRO_DAILY_LIMIT = 500
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+_VALID_EXTENSIONS = {"linkedin", "youtube", "gmail", "jobs", "reviews"}
+
+
+def _validate_usage_params(user_id: str, extension: str):
+    if not _UUID_RE.match(str(user_id)):
+        raise HTTPException(status_code=400, detail="Invalid user ID format.")
+    if extension not in _VALID_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Invalid extension.")
+
 
 def get_usage_today(user_id: str, extension: str) -> int:
+    _validate_usage_params(user_id, extension)
     today = date.today().isoformat()
     rows = db_request("GET", "usage", params={
         "user_id": f"eq.{user_id}",
@@ -25,6 +38,7 @@ def get_usage_today(user_id: str, extension: str) -> int:
 
 def increment_usage(user_id: str, extension: str):
     """Atomic upsert: insert or increment in one call to prevent race conditions."""
+    _validate_usage_params(user_id, extension)
     today = date.today().isoformat()
 
     # Use Supabase RPC or upsert via PostgREST with on_conflict
@@ -92,6 +106,7 @@ def increment_usage(user_id: str, extension: str):
 
 
 def can_generate(user_id: str, extension: str) -> tuple[bool, int]:
+    _validate_usage_params(user_id, extension)
     usage = get_usage_today(user_id, extension)
 
     if is_pro_for(user_id, extension):
