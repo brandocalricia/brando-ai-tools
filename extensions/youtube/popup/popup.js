@@ -254,104 +254,115 @@ function extractVideoId(url) {
 }
 
 async function fetchTranscriptClientSide(videoId) {
-  // Read the YouTube page source directly from the active tab
-  // This is the most reliable method — the page is already loaded
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url || !tab.url.includes("youtube.com")) return null;
 
-    // Step 1: Get the page HTML from the tab to find caption URLs
-    const htmlResults = await chrome.scripting.executeScript({
+    // Step 1: Inject into the YouTube tab to find caption URL
+    // Must use world: "MAIN" to access YouTube's JS variables
+    // YouTube is a SPA so data lives in JS state, not in the HTML
+    const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
+      world: "MAIN",
       func: () => {
-        // Get the raw HTML source — captionTracks is embedded in script tags
-        return document.documentElement.innerHTML;
+        function findCaptionUrl() {
+          // Source 1: ytInitialPlayerResponse (set on first page load)
+          try {
+            const p = window.ytInitialPlayerResponse;
+            const tracks = p?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+            if (tracks && tracks.length > 0) {
+              for (const t of tracks) {
+                if (t.languageCode?.startsWith("en")) return t.baseUrl;
+              }
+              return tracks[0].baseUrl;
+            }
+          } catch {}
+
+          // Source 2: ytd-watch-flexy Polymer element (works after SPA nav)
+          try {
+            const flexy = document.querySelector("ytd-watch-flexy");
+            const pr = flexy?.__data?.playerResponse || flexy?.playerResponse;
+            const tracks = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+            if (tracks && tracks.length > 0) {
+              for (const t of tracks) {
+                if (t.languageCode?.startsWith("en")) return t.baseUrl;
+              }
+              return tracks[0].baseUrl;
+            }
+          } catch {}
+
+          // Source 3: ytplayer.config
+          try {
+            const cfg = window.ytplayer?.config?.args;
+            const raw = cfg?.raw_player_response || (cfg?.player_response ? JSON.parse(cfg.player_response) : null);
+            const tracks = raw?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+            if (tracks && tracks.length > 0) {
+              for (const t of tracks) {
+                if (t.languageCode?.startsWith("en")) return t.baseUrl;
+              }
+              return tracks[0].baseUrl;
+            }
+          } catch {}
+
+          // Source 4: Scan script tags for captionTracks
+          try {
+            const scripts = document.querySelectorAll("script");
+            for (const s of scripts) {
+              const text = s.textContent;
+              if (!text || !text.includes("captionTracks")) continue;
+              const marker = '"captionTracks":';
+              const idx = text.indexOf(marker);
+              if (idx === -1) continue;
+              let start = idx + marker.length;
+              while (start < text.length && text[start] !== "[") start++;
+              let depth = 0, end = start;
+              for (let i = start; i < Math.min(start + 5000, text.length); i++) {
+                if (text[i] === "[") depth++;
+                else if (text[i] === "]") depth--;
+                if (depth === 0) { end = i + 1; break; }
+              }
+              const tracks = JSON.parse(text.substring(start, end));
+              if (tracks && tracks.length > 0) {
+                for (const t of tracks) {
+                  if (t.languageCode?.startsWith("en")) return t.baseUrl;
+                }
+                return tracks[0].baseUrl;
+              }
+            }
+          } catch {}
+
+          return null;
+        }
+        return findCaptionUrl();
       },
     });
 
-    const html = htmlResults?.[0]?.result;
-    if (!html) return null;
-
-    // Step 2: Find captionTracks in the HTML using bracket counting
-    const marker = '"captionTracks":';
-    const idx = html.indexOf(marker);
-    if (idx === -1) {
-      console.warn("No captionTracks found in page HTML");
+    const captionUrl = results?.[0]?.result;
+    if (!captionUrl) {
+      console.warn("No caption URL found via any method");
       return null;
     }
 
-    let start = idx + marker.length;
-    while (start < html.length && html[start] !== "[") start++;
-    if (start >= html.length) return null;
+    // Step 2: Fetch the captions XML
+    const resp = await fetch(captionUrl);
+    const text = await resp.text();
 
-    let depth = 0;
-    let end = start;
-    for (let i = start; i < Math.min(start + 5000, html.length); i++) {
-      if (html[i] === "[") depth++;
-      else if (html[i] === "]") depth--;
-      if (depth === 0) { end = i + 1; break; }
-    }
-
-    const tracksJson = html.substring(start, end);
-    let tracks;
-    try {
-      tracks = JSON.parse(tracksJson);
-    } catch (e) {
-      console.warn("Failed to parse captionTracks JSON:", e);
-      return null;
-    }
-
-    if (!tracks || tracks.length === 0) return null;
-
-    // Step 3: Pick best caption track (prefer English)
-    let captionUrl = null;
-    for (const t of tracks) {
-      if (t.languageCode && t.languageCode.startsWith("en")) {
-        captionUrl = t.baseUrl;
-        break;
+    if (text.includes("<text")) {
+      const snippets = [];
+      const tags = text.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
+      for (const tag of tags) {
+        const inner = tag.replace(/<[^>]+>/g, "")
+          .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+          .replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
+        if (inner) snippets.push(inner);
       }
-    }
-    if (!captionUrl) captionUrl = tracks[0].baseUrl;
-    if (!captionUrl) return null;
-
-    // Step 4: Fetch the actual captions — try XML first (most reliable)
-    try {
-      const resp = await fetch(captionUrl);
-      const text = await resp.text();
-
-      // Check if response is XML (starts with <?xml or has <text> tags)
-      if (text.includes("<text")) {
-        const snippets = [];
-        const tags = text.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
-        for (const tag of tags) {
-          const inner = tag.replace(/<[^>]+>/g, "")
-            .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-            .replace(/&#39;/g, "'").replace(/&quot;/g, '"').trim();
-          if (inner) snippets.push(inner);
-        }
-        if (snippets.length > 0) return snippets.join(" ");
-      }
-
-      // Try parsing as json3
-      try {
-        const data = JSON.parse(text);
-        const snippets = [];
-        for (const event of (data.events || [])) {
-          for (const seg of (event.segs || [])) {
-            const t = (seg.utf8 || "").trim();
-            if (t && t !== "\n") snippets.push(t);
-          }
-        }
-        if (snippets.length > 0) return snippets.join(" ");
-      } catch {}
-    } catch (e) {
-      console.warn("Caption fetch failed:", e);
+      if (snippets.length > 0) return snippets.join(" ");
     }
 
-    // Step 5: Try with &fmt=json3
+    // Try json3
     try {
-      const resp = await fetch(captionUrl + "&fmt=json3");
-      const data = await resp.json();
+      const resp2 = await fetch(captionUrl + "&fmt=json3");
+      const data = await resp2.json();
       const snippets = [];
       for (const event of (data.events || [])) {
         for (const seg of (event.segs || [])) {
@@ -360,9 +371,7 @@ async function fetchTranscriptClientSide(videoId) {
         }
       }
       if (snippets.length > 0) return snippets.join(" ");
-    } catch (e) {
-      console.warn("json3 caption fetch failed:", e);
-    }
+    } catch {}
 
   } catch (e) {
     console.warn("Transcript extraction failed:", e);
