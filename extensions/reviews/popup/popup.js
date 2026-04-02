@@ -250,11 +250,11 @@ async function loadPageContext() {
       }
     } catch {}
 
-    // Method 2: Inject a scraper via chrome.scripting (works even if content script didn't load, or Best Buy needs more reviews)
+    // Method 2: Inject a scraper via chrome.scripting (sync DOM scraping only — no async)
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: async () => {
+        func: () => {
           const name =
             document.querySelector('[itemprop="name"]')?.innerText?.trim() ||
             document.querySelector('meta[property="og:title"]')?.getAttribute("content") ||
@@ -265,20 +265,7 @@ async function loadPageContext() {
 
           const reviews = [];
           const seen = new Set();
-
-          function parseBBList(container) {
-            const r = [];
-            if (!container) return r;
-            container.querySelectorAll(":scope > li").forEach((li) => {
-              const body = li.querySelector("p[id^='ugc-line-clamp']") || li.querySelector("p.body-copy-lg");
-              const ratingEl = li.querySelector("span.sr-only");
-              if (body) {
-                const t = body.innerText.trim().substring(0, 500);
-                if (t.length > 20 && !seen.has(t)) { seen.add(t); r.push({ text: t, rating: ratingEl ? ratingEl.innerText.trim() : null }); }
-              }
-            });
-            return r;
-          }
+          const isBestBuy = location.hostname.includes("bestbuy.com");
 
           // Amazon reviews
           document.querySelectorAll('[data-hook="review"]').forEach((el) => {
@@ -293,24 +280,24 @@ async function loadPageContext() {
             const star = document.querySelector('#acrPopover .a-icon-alt, [data-hook="rating-out-of-text"]');
             if (agg) reviews.push({ text: `Overall: ${star ? star.innerText.trim() + " — " : ""}${agg.innerText.trim()}`, rating: star ? star.innerText.trim() : null });
           }
-          // Best Buy reviews — try DOM first, then fetch reviews page
-          if (reviews.length === 0 && location.hostname.includes("bestbuy.com")) {
-            let bb = parseBBList(document.getElementById("stand-alone-review-list"));
-            if (bb.length === 0) bb = parseBBList(document.getElementById("review-list"));
-            if (bb.length <= 3) {
-              try {
-                const baseUrl = location.href.replace(/#.*$/, "").replace(/\/reviews.*$/, "");
-                const resp = await fetch(baseUrl + "/reviews?pageSize=20");
-                const html = await resp.text();
-                const doc = new DOMParser().parseFromString(html, "text/html");
-                const fetched = parseBBList(doc.getElementById("stand-alone-review-list") || doc.getElementById("review-list"));
-                if (fetched.length > bb.length) bb = fetched;
-              } catch {}
+          // Best Buy reviews — sync DOM scraping only (async fetch handled by content script)
+          if (reviews.length === 0 && isBestBuy) {
+            const lists = [document.getElementById("stand-alone-review-list"), document.getElementById("review-list")];
+            for (const list of lists) {
+              if (!list) continue;
+              list.querySelectorAll(":scope > li").forEach((li) => {
+                const body = li.querySelector("p[id^='ugc-line-clamp']") || li.querySelector("p.body-copy-lg");
+                const ratingEl = li.querySelector("span.sr-only");
+                if (body) {
+                  const t = body.innerText.trim().substring(0, 500);
+                  if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: ratingEl ? ratingEl.innerText.trim() : null }); }
+                }
+              });
+              if (reviews.length > 0) break;
             }
-            reviews.push(...bb);
           }
-          // Generic reviews
-          if (reviews.length === 0) {
+          // Generic reviews (skip on Best Buy — data-testid="sku-review" are comparison cards, not reviews)
+          if (reviews.length === 0 && !isBestBuy) {
             const sels = ['[itemprop="review"]', '[itemprop="reviewBody"]', '.review', '.customer-review', '.product-review', '[class*="review-text"]', '[class*="review-body"]', '[data-testid*="review"]'];
             for (const sel of sels) {
               document.querySelectorAll(sel).forEach((el) => {
@@ -325,12 +312,21 @@ async function loadPageContext() {
       });
       if (results && results[0]?.result?.product) {
         const data = results[0].result;
-        lastReviews = data.reviews || [];
-        lastProductInfo = data.product;
+        // Only use Method 2 results if they're better than what Method 1 found
+        if (!needsMoreReviews || (data.reviews || []).length > (lastReviews || []).length) {
+          lastReviews = data.reviews || [];
+          lastProductInfo = data.product;
+        }
         showProductInfo(lastProductInfo, tab.url, lastReviews.length);
         return;
       }
     } catch {}
+
+    // If Method 1 found some reviews (needsMoreReviews), show what we have
+    if (needsMoreReviews && lastReviews && lastReviews.length > 0) {
+      showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+      return;
+    }
 
     // Method 3: If it's a known shopping site, show product info anyway
     if (isKnownShoppingSite(tab.url)) {
