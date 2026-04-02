@@ -1,6 +1,5 @@
 import anthropic
 import re
-import httpx
 import json
 import logging
 from fastapi import APIRouter, HTTPException, Depends
@@ -39,8 +38,109 @@ def extract_video_id(url: str) -> str:
     raise ValueError("Could not extract video ID from URL.")
 
 
+def get_transcript_via_ytdlp(video_id: str) -> str | None:
+    """Use yt-dlp Python API to extract subtitles — most robust method."""
+    try:
+        import yt_dlp
+
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        subtitles_data = {}
+
+        # Custom yt-dlp options to just get subtitle info
+        ydl_opts = {
+            "skip_download": True,
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            auto_subs = info.get("automatic_captions", {})
+            manual_subs = info.get("subtitles", {})
+
+            # Prefer manual English subs, fall back to auto-generated
+            sub_url = None
+            for subs_dict in [manual_subs, auto_subs]:
+                for lang_key in ["en", "en-US", "en-GB", "en-orig"]:
+                    if lang_key in subs_dict:
+                        # Find json3 format, fall back to vtt
+                        formats = subs_dict[lang_key]
+                        for fmt in formats:
+                            if fmt.get("ext") == "json3":
+                                sub_url = fmt.get("url")
+                                break
+                        if not sub_url:
+                            for fmt in formats:
+                                if fmt.get("ext") == "vtt":
+                                    sub_url = fmt.get("url")
+                                    break
+                        if sub_url:
+                            break
+                if sub_url:
+                    break
+
+            # If no English found, try first available language
+            if not sub_url:
+                for subs_dict in [manual_subs, auto_subs]:
+                    if subs_dict:
+                        first_lang = next(iter(subs_dict))
+                        formats = subs_dict[first_lang]
+                        for fmt in formats:
+                            if fmt.get("ext") == "json3":
+                                sub_url = fmt.get("url")
+                                break
+                        if not sub_url and formats:
+                            sub_url = formats[0].get("url")
+                        if sub_url:
+                            break
+
+        if not sub_url:
+            logger.warning(f"yt-dlp: no subtitles found for {video_id}")
+            return None
+
+        # Fetch the subtitle content
+        import httpx
+        with httpx.Client(timeout=15) as client:
+            resp = client.get(sub_url)
+            content = resp.text
+
+        # Try parsing as json3
+        try:
+            data = json.loads(content)
+            events = data.get("events", [])
+            snippets = []
+            for event in events:
+                segs = event.get("segs", [])
+                for seg in segs:
+                    text = seg.get("utf8", "").strip()
+                    if text and text != "\n":
+                        snippets.append(text)
+            if snippets:
+                return " ".join(snippets)
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+        # Parse as VTT
+        lines = content.split("\n")
+        snippets = []
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("WEBVTT") or line.startswith("Kind:") or line.startswith("Language:"):
+                continue
+            if re.match(r'^\d{2}:\d{2}', line) or re.match(r'^\d+$', line):
+                continue
+            clean = re.sub(r'<[^>]+>', '', line)
+            if clean:
+                snippets.append(clean)
+        return " ".join(snippets) if snippets else None
+
+    except Exception as e:
+        logger.warning(f"yt-dlp failed: {e}")
+        return None
+
+
 def get_transcript_via_library(video_id: str) -> str | None:
-    """Try youtube-transcript-api library (works locally, often blocked on cloud)."""
+    """Try youtube-transcript-api library."""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         ytt = YouTubeTranscriptApi()
@@ -53,130 +153,30 @@ def get_transcript_via_library(video_id: str) -> str | None:
         if snippets:
             return " ".join(snippets)
     except Exception as e:
-        logger.warning(f"youtube-transcript-api failed: {e}")
+        logger.warning(f"youtube-transcript-api fetch() failed: {e}")
 
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
         return " ".join([entry["text"] for entry in transcript_list])
     except Exception as e:
-        logger.warning(f"youtube-transcript-api legacy failed: {e}")
-
-    return None
-
-
-def get_transcript_via_innertube(video_id: str) -> str | None:
-    """Fetch captions directly via YouTube's InnerTube API (no library needed)."""
-    try:
-        # First get the video page to find caption tracks
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-        with httpx.Client(timeout=15) as client:
-            resp = client.get(f"https://www.youtube.com/watch?v={video_id}", headers=headers)
-            html = resp.text
-
-        # Extract captions JSON from page source
-        caption_match = re.search(r'"captions":\s*(\{.*?"playerCaptionsTracklistRenderer".*?\})\s*,\s*"videoDetails"', html, re.DOTALL)
-        if not caption_match:
-            # Try alternate pattern
-            caption_match = re.search(r'"captionTracks":\s*(\[.*?\])', html, re.DOTALL)
-            if caption_match:
-                tracks = json.loads(caption_match.group(1))
-            else:
-                return None
-        else:
-            captions_json = json.loads(caption_match.group(1))
-            tracks = captions_json.get("playerCaptionsTracklistRenderer", {}).get("captionTracks", [])
-
-        if not tracks:
-            return None
-
-        # Prefer English, fall back to first available (often auto-generated)
-        caption_url = None
-        for track in tracks:
-            lang = track.get("languageCode", "")
-            if lang.startswith("en"):
-                caption_url = track.get("baseUrl")
-                break
-        if not caption_url:
-            caption_url = tracks[0].get("baseUrl")
-        if not caption_url:
-            return None
-
-        # Fetch the captions XML
-        caption_url += "&fmt=json3"
-        with httpx.Client(timeout=15) as client:
-            resp = client.get(caption_url, headers=headers)
-            data = resp.json()
-
-        events = data.get("events", [])
-        snippets = []
-        for event in events:
-            segs = event.get("segs", [])
-            for seg in segs:
-                text = seg.get("utf8", "").strip()
-                if text and text != "\n":
-                    snippets.append(text)
-
-        if snippets:
-            return " ".join(snippets)
-    except Exception as e:
-        logger.warning(f"InnerTube caption fetch failed: {e}")
-
-    return None
-
-
-def get_transcript_via_timedtext(video_id: str) -> str | None:
-    """Try YouTube's timedtext API directly."""
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        }
-        url = f"https://www.youtube.com/api/timedtext?v={video_id}&lang=en&fmt=json3"
-        with httpx.Client(timeout=15) as client:
-            resp = client.get(url, headers=headers)
-            if resp.status_code != 200:
-                # Try auto-generated
-                url = f"https://www.youtube.com/api/timedtext?v={video_id}&lang=en&kind=asr&fmt=json3"
-                resp = client.get(url, headers=headers)
-            if resp.status_code != 200:
-                return None
-            data = resp.json()
-
-        events = data.get("events", [])
-        snippets = []
-        for event in events:
-            segs = event.get("segs", [])
-            for seg in segs:
-                text = seg.get("utf8", "").strip()
-                if text and text != "\n":
-                    snippets.append(text)
-
-        if snippets:
-            return " ".join(snippets)
-    except Exception as e:
-        logger.warning(f"Timedtext API failed: {e}")
+        logger.warning(f"youtube-transcript-api get_transcript() failed: {e}")
 
     return None
 
 
 def get_transcript(video_id: str) -> str:
     """Try multiple methods to get transcript."""
-    # Method 1: youtube-transcript-api library
+    # Method 1: yt-dlp (most reliable on cloud servers)
+    transcript = get_transcript_via_ytdlp(video_id)
+    if transcript and len(transcript) > 50:
+        logger.info(f"Got transcript via yt-dlp ({len(transcript)} chars)")
+        return transcript
+
+    # Method 2: youtube-transcript-api library
     transcript = get_transcript_via_library(video_id)
-    if transcript:
-        return transcript
-
-    # Method 2: Direct InnerTube page scrape
-    transcript = get_transcript_via_innertube(video_id)
-    if transcript:
-        return transcript
-
-    # Method 3: Timedtext API
-    transcript = get_transcript_via_timedtext(video_id)
-    if transcript:
+    if transcript and len(transcript) > 50:
+        logger.info(f"Got transcript via library ({len(transcript)} chars)")
         return transcript
 
     raise HTTPException(
