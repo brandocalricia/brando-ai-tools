@@ -1,10 +1,16 @@
 import anthropic
+import re
+import httpx
+import json
+import logging
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from core.auth import get_current_user
 from core.usage import can_generate, increment_usage
 from core.config import MODEL_FAST
 from prompts.youtube_prompts import SYSTEM_PROMPT, build_summarize_prompt
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/youtube", tags=["youtube"])
 claude = anthropic.Anthropic()
@@ -22,7 +28,6 @@ class SummarizeResponse(BaseModel):
 
 
 def extract_video_id(url: str) -> str:
-    import re
     patterns = [
         r'(?:v=|/v/|youtu\.be/)([a-zA-Z0-9_-]{11})',
         r'(?:embed/)([a-zA-Z0-9_-]{11})',
@@ -34,11 +39,12 @@ def extract_video_id(url: str) -> str:
     raise ValueError("Could not extract video ID from URL.")
 
 
-def get_transcript(video_id: str) -> str:
-    from youtube_transcript_api import YouTubeTranscriptApi
+def get_transcript_via_library(video_id: str) -> str | None:
+    """Try youtube-transcript-api library (works locally, often blocked on cloud)."""
     try:
-        # v0.6.3+ API: fetch().to_raw_data() returns list of dicts
-        transcript_data = YouTubeTranscriptApi().fetch(video_id)
+        from youtube_transcript_api import YouTubeTranscriptApi
+        ytt = YouTubeTranscriptApi()
+        transcript_data = ytt.fetch(video_id)
         snippets = []
         for entry in transcript_data:
             text = entry.text if hasattr(entry, "text") else entry.get("text", "")
@@ -46,31 +52,137 @@ def get_transcript(video_id: str) -> str:
                 snippets.append(text)
         if snippets:
             return " ".join(snippets)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"youtube-transcript-api failed: {e}")
 
     try:
-        # Legacy API (older versions): get_transcript returns list of dicts
+        from youtube_transcript_api import YouTubeTranscriptApi
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
         return " ".join([entry["text"] for entry in transcript_list])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"youtube-transcript-api legacy failed: {e}")
 
+    return None
+
+
+def get_transcript_via_innertube(video_id: str) -> str | None:
+    """Fetch captions directly via YouTube's InnerTube API (no library needed)."""
     try:
-        # Try with language fallbacks
-        ytt = YouTubeTranscriptApi()
-        transcript_data = ytt.fetch(video_id, languages=["en", "en-US", "en-GB"])
+        # First get the video page to find caption tracks
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        with httpx.Client(timeout=15) as client:
+            resp = client.get(f"https://www.youtube.com/watch?v={video_id}", headers=headers)
+            html = resp.text
+
+        # Extract captions JSON from page source
+        caption_match = re.search(r'"captions":\s*(\{.*?"playerCaptionsTracklistRenderer".*?\})\s*,\s*"videoDetails"', html, re.DOTALL)
+        if not caption_match:
+            # Try alternate pattern
+            caption_match = re.search(r'"captionTracks":\s*(\[.*?\])', html, re.DOTALL)
+            if caption_match:
+                tracks = json.loads(caption_match.group(1))
+            else:
+                return None
+        else:
+            captions_json = json.loads(caption_match.group(1))
+            tracks = captions_json.get("playerCaptionsTracklistRenderer", {}).get("captionTracks", [])
+
+        if not tracks:
+            return None
+
+        # Prefer English, fall back to first available (often auto-generated)
+        caption_url = None
+        for track in tracks:
+            lang = track.get("languageCode", "")
+            if lang.startswith("en"):
+                caption_url = track.get("baseUrl")
+                break
+        if not caption_url:
+            caption_url = tracks[0].get("baseUrl")
+        if not caption_url:
+            return None
+
+        # Fetch the captions XML
+        caption_url += "&fmt=json3"
+        with httpx.Client(timeout=15) as client:
+            resp = client.get(caption_url, headers=headers)
+            data = resp.json()
+
+        events = data.get("events", [])
         snippets = []
-        for entry in transcript_data:
-            text = entry.text if hasattr(entry, "text") else entry.get("text", "")
-            if text:
-                snippets.append(text)
+        for event in events:
+            segs = event.get("segs", [])
+            for seg in segs:
+                text = seg.get("utf8", "").strip()
+                if text and text != "\n":
+                    snippets.append(text)
+
         if snippets:
             return " ".join(snippets)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"InnerTube caption fetch failed: {e}")
 
-    raise HTTPException(status_code=400, detail="Could not retrieve transcript. The video may not have captions available.")
+    return None
+
+
+def get_transcript_via_timedtext(video_id: str) -> str | None:
+    """Try YouTube's timedtext API directly."""
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        }
+        url = f"https://www.youtube.com/api/timedtext?v={video_id}&lang=en&fmt=json3"
+        with httpx.Client(timeout=15) as client:
+            resp = client.get(url, headers=headers)
+            if resp.status_code != 200:
+                # Try auto-generated
+                url = f"https://www.youtube.com/api/timedtext?v={video_id}&lang=en&kind=asr&fmt=json3"
+                resp = client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+
+        events = data.get("events", [])
+        snippets = []
+        for event in events:
+            segs = event.get("segs", [])
+            for seg in segs:
+                text = seg.get("utf8", "").strip()
+                if text and text != "\n":
+                    snippets.append(text)
+
+        if snippets:
+            return " ".join(snippets)
+    except Exception as e:
+        logger.warning(f"Timedtext API failed: {e}")
+
+    return None
+
+
+def get_transcript(video_id: str) -> str:
+    """Try multiple methods to get transcript."""
+    # Method 1: youtube-transcript-api library
+    transcript = get_transcript_via_library(video_id)
+    if transcript:
+        return transcript
+
+    # Method 2: Direct InnerTube page scrape
+    transcript = get_transcript_via_innertube(video_id)
+    if transcript:
+        return transcript
+
+    # Method 3: Timedtext API
+    transcript = get_transcript_via_timedtext(video_id)
+    if transcript:
+        return transcript
+
+    raise HTTPException(
+        status_code=400,
+        detail="Could not retrieve transcript. The video may not have captions available."
+    )
 
 
 @router.post("/summarize", response_model=SummarizeResponse)
@@ -107,4 +219,5 @@ async def summarize(req: SummarizeRequest, user=Depends(get_current_user)):
     except anthropic.APIError:
         raise HTTPException(status_code=502, detail="AI service temporarily unavailable.")
     except Exception as e:
+        logger.error(f"YouTube summarize error: {e}")
         raise HTTPException(status_code=500, detail="Something went wrong.")
