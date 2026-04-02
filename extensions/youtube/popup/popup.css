@@ -163,6 +163,8 @@ select {
 }
 .footer-upgrade { font-size: 11px; color: #ff0000; text-decoration: none; font-weight: 500; cursor: pointer; }
 .footer-upgrade:hover { text-decoration: underline; }
+.footer-upgrade-group { display: flex; align-items: center; gap: 4px; }
+.footer-sep { font-size: 10px; color: #ccc; }
 .plan-label { font-size: 11px; color: #999; }
 .plan-label.pro { color: #ff0000; font-weight: 500; }
 
@@ -244,6 +246,7 @@ body.dark .btn-bundle { border-color: #ff4444; background: #1e1e1e; color: #ff44
 body.dark .btn-bundle:hover { background: #3e1a1a; }
 body.dark .upgrade-sub { color: #777; }
 body.dark .footer { border-color: #333; }
+body.dark .footer-sep { color: #555; }
 body.dark .user-email { color: #777; }
 body.dark .footer-upgrade { color: #ff4444; }
 body.dark .plan-label { color: #777; }

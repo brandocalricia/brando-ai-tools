@@ -180,6 +180,8 @@ textarea:focus, input[type="text"]:focus, select:focus {
   font-size: 11px; color: #999; max-width: 220px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap;
 }
+.footer-upgrade-group { display: flex; align-items: center; gap: 4px; }
+.footer-sep { font-size: 10px; color: #ccc; }
 .plan-label { font-size: 11px; color: #999; }
 .plan-label.pro { color: #e47911; font-weight: 600; }
 
@@ -289,6 +291,7 @@ body.dark .btn-bundle { border-color: #ffb347; background: #1e1e1e; color: #ffb3
 body.dark .btn-bundle:hover { background: #3e2a00; }
 body.dark .upgrade-sub { color: #777; }
 body.dark .footer { border-color: #333; }
+body.dark .footer-sep { color: #555; }
 body.dark .user-email { color: #777; }
 body.dark .footer-upgrade { color: #ffb347; }
 body.dark .plan-label { color: #777; }

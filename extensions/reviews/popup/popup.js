@@ -212,36 +212,68 @@ function setAuthLoading(loading) {
 async function loadPageContext() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab) return;
+    if (!tab || !tab.url) return showNoProduct();
 
-    const stored = await chrome.storage.local.get(["scrapedReviews", "scrapedProduct", "scrapedTabId"]);
-    if (stored.scrapedTabId === tab.id && stored.scrapedReviews) {
-      lastReviews = stored.scrapedReviews;
-      lastProductInfo = stored.scrapedProduct || {};
-      showProductInfo(lastProductInfo, tab.url);
-    } else {
-      showNoProduct();
+    // Try to trigger a fresh scrape from the content script
+    try {
+      const response = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_REVIEWS" });
+      if (response && response.product) {
+        lastReviews = response.reviews || [];
+        lastProductInfo = response.product;
+        showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+        return;
+      }
+    } catch {}
+
+    // Fall back to cached data
+    const stored = await chrome.storage.local.get(["scrapedReviews", "scrapedProduct", "scrapedUrl"]);
+    if (stored.scrapedProduct && stored.scrapedUrl === tab.url) {
+      lastReviews = stored.scrapedReviews || [];
+      lastProductInfo = stored.scrapedProduct;
+      showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+      return;
     }
+
+    showNoProduct();
   } catch {
     showNoProduct();
   }
 }
 
-function showProductInfo(product, url) {
+function showProductInfo(product, url, reviewCount = 0) {
   const siteEl = document.getElementById("product-site");
   const nameEl = document.getElementById("product-name");
 
-  let site = "Unknown site";
-  if (url.includes("amazon.com")) site = "Amazon";
-  else if (url.includes("bestbuy.com")) site = "Best Buy";
-  else if (url.includes("walmart.com")) site = "Walmart";
+  let site = "Shopping site";
+  try {
+    const hostname = new URL(url).hostname.replace("www.", "");
+    const siteMap = {
+      "amazon.com": "Amazon", "bestbuy.com": "Best Buy", "walmart.com": "Walmart",
+      "target.com": "Target", "newegg.com": "Newegg", "homedepot.com": "Home Depot",
+      "lowes.com": "Lowe's", "ebay.com": "eBay",
+    };
+    for (const [domain, name] of Object.entries(siteMap)) {
+      if (hostname.includes(domain)) { site = name; break; }
+    }
+    if (site === "Shopping site") {
+      site = hostname.split(".")[0].charAt(0).toUpperCase() + hostname.split(".")[0].slice(1);
+    }
+  } catch {}
 
   siteEl.textContent = site;
   nameEl.textContent = product.name || "Product detected";
 
   document.getElementById("product-info").classList.remove("hidden");
   document.getElementById("no-product").classList.add("hidden");
-  document.getElementById("summarize-btn").disabled = false;
+
+  const btn = document.getElementById("summarize-btn");
+  if (reviewCount > 0) {
+    btn.disabled = false;
+    btn.textContent = `Summarize ${reviewCount} review${reviewCount === 1 ? "" : "s"}`;
+  } else {
+    btn.disabled = false;
+    btn.textContent = "Summarize reviews";
+  }
 }
 
 function showNoProduct() {
@@ -261,6 +293,10 @@ function setupButtons() {
   document.getElementById("footer-upgrade").addEventListener("click", (e) => {
     e.preventDefault();
     openUpgrade("reviews");
+  });
+  document.getElementById("footer-bundle").addEventListener("click", (e) => {
+    e.preventDefault();
+    openUpgrade("bundle");
   });
 }
 
@@ -454,16 +490,16 @@ async function openUpgrade(extension = "reviews") {
 function updateUI() {
   const badge = document.getElementById("usage-badge");
   const planLabel = document.getElementById("plan-label");
-  const footerUpgrade = document.getElementById("footer-upgrade");
+  const footerGroup = document.getElementById("footer-upgrade-group");
 
   if (isPro) {
     badge.textContent = "Pro";
     badge.className = "usage-badge";
     planLabel.textContent = "Pro plan";
     planLabel.className = "plan-label pro";
-    footerUpgrade.classList.add("hidden");
+    footerGroup.classList.add("hidden");
   } else {
-    footerUpgrade.classList.remove("hidden");
+    footerGroup.classList.remove("hidden");
     const remaining = FREE_DAILY_LIMIT - usageToday;
     badge.textContent = `${remaining}/${FREE_DAILY_LIMIT} left`;
     if (remaining <= 0) {

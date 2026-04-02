@@ -35,12 +35,42 @@ def extract_video_id(url: str) -> str:
 
 
 def get_transcript(video_id: str) -> str:
+    from youtube_transcript_api import YouTubeTranscriptApi
     try:
-        from youtube_transcript_api import YouTubeTranscriptApi
+        # v0.6.3+ API: fetch().to_raw_data() returns list of dicts
+        transcript_data = YouTubeTranscriptApi().fetch(video_id)
+        snippets = []
+        for entry in transcript_data:
+            text = entry.text if hasattr(entry, "text") else entry.get("text", "")
+            if text:
+                snippets.append(text)
+        if snippets:
+            return " ".join(snippets)
+    except Exception:
+        pass
+
+    try:
+        # Legacy API (older versions): get_transcript returns list of dicts
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
         return " ".join([entry["text"] for entry in transcript_list])
     except Exception:
-        raise HTTPException(status_code=400, detail="Could not retrieve transcript. The video may not have captions.")
+        pass
+
+    try:
+        # Try with language fallbacks
+        ytt = YouTubeTranscriptApi()
+        transcript_data = ytt.fetch(video_id, languages=["en", "en-US", "en-GB"])
+        snippets = []
+        for entry in transcript_data:
+            text = entry.text if hasattr(entry, "text") else entry.get("text", "")
+            if text:
+                snippets.append(text)
+        if snippets:
+            return " ".join(snippets)
+    except Exception:
+        pass
+
+    raise HTTPException(status_code=400, detail="Could not retrieve transcript. The video may not have captions available.")
 
 
 @router.post("/summarize", response_model=SummarizeResponse)

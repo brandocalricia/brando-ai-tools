@@ -230,6 +230,10 @@ function setupButtons() {
     e.preventDefault();
     openUpgrade("gmail");
   });
+  document.getElementById("footer-bundle").addEventListener("click", (e) => {
+    e.preventDefault();
+    openUpgrade("bundle");
+  });
 }
 
 async function handleRewrite() {
@@ -262,7 +266,7 @@ async function handleCompose() {
   }
   lastRequest = {
     mode: "compose",
-    prompt,
+    description: prompt,
     tone: document.getElementById("compose-tone").value,
   };
   await callAPI(lastRequest);
@@ -342,15 +346,15 @@ function canGenerate() {
 function updateUI() {
   const badge = document.getElementById("usage-badge");
   const planLabel = document.getElementById("plan-label");
-  const footerUpgrade = document.getElementById("footer-upgrade");
+  const footerGroup = document.getElementById("footer-upgrade-group");
   if (isPro) {
     badge.textContent = "Pro";
     badge.className = "usage-badge";
     planLabel.textContent = "Pro plan";
     planLabel.className = "plan-label pro";
-    footerUpgrade.classList.add("hidden");
+    footerGroup.classList.add("hidden");
   } else {
-    footerUpgrade.classList.remove("hidden");
+    footerGroup.classList.remove("hidden");
     const remaining = FREE_DAILY_LIMIT - usageToday;
     badge.textContent = `${remaining}/${FREE_DAILY_LIMIT} left`;
     if (remaining <= 0) {

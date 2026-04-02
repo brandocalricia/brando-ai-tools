@@ -238,6 +238,10 @@ function setupButtons() {
     e.preventDefault();
     openUpgrade("youtube");
   });
+  document.getElementById("footer-bundle").addEventListener("click", (e) => {
+    e.preventDefault();
+    openUpgrade("bundle");
+  });
 
   document.getElementById("video-url").addEventListener("input", () => {
     document.getElementById("video-detected").classList.add("hidden");
@@ -340,15 +344,15 @@ function canGenerate() {
 function updateUI() {
   const badge = document.getElementById("usage-badge");
   const planLabel = document.getElementById("plan-label");
-  const footerUpgrade = document.getElementById("footer-upgrade");
+  const footerGroup = document.getElementById("footer-upgrade-group");
   if (isPro) {
     badge.textContent = "Pro";
     badge.className = "usage-badge";
     planLabel.textContent = "Pro plan";
     planLabel.className = "plan-label pro";
-    footerUpgrade.classList.add("hidden");
+    footerGroup.classList.add("hidden");
   } else {
-    footerUpgrade.classList.remove("hidden");
+    footerGroup.classList.remove("hidden");
     const remaining = FREE_DAILY_LIMIT - usageToday;
     badge.textContent = `${remaining}/${FREE_DAILY_LIMIT} left`;
     if (remaining <= 0) {
