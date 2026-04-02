@@ -302,7 +302,7 @@ async def stripe_webhook(request: Request):
                         update_user_plan(user_id, ext)
                     else:
                         # Already has some individual extensions, add this one
-                        existing = set(current_plan.split(","))
+                        existing = {e for e in current_plan.split(",") if e}
                         existing.add(ext)
                         # If they now have all 5, upgrade to full pro
                         all_exts = set(FREE_DAILY_LIMITS.keys())
@@ -347,7 +347,7 @@ async def stripe_webhook(request: Request):
                         elif current_plan == "free":
                             pass  # already free
                         else:
-                            existing = set(current_plan.split(","))
+                            existing = {e for e in current_plan.split(",") if e}
                             existing.discard(cancelled_ext)
                             if existing:
                                 update_user_plan(user_id, ",".join(sorted(existing)))
@@ -363,7 +363,7 @@ async def stripe_webhook(request: Request):
                     update_user_plan(user_id, "free")
 
     except Exception as e:
-        logger.error(f"Webhook error: {type(e).__name__}: {e}", exc_info=True)
+        logger.error(f"Webhook processing error: {type(e).__name__}")
         # Return 200 so Stripe doesn't retry, but don't leak error details
         return JSONResponse(content={"received": True, "error": "processing_error"}, status_code=200)
 

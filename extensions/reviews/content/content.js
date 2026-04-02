@@ -582,11 +582,20 @@ function injectBadge(reviewCount) {
   const btn = document.createElement("button");
   btn.id = BADGE_BTN_ID;
   btn.className = "brando-summary-btn";
-  btn.innerHTML = `
-    <span class="brando-logo">B</span>
-    <span class="brando-btn-text">Brando Summary</span>
-    ${reviewCount > 0 ? `<span class="brando-review-count">${reviewCount} reviews</span>` : ""}
-  `;
+  const logo = document.createElement("span");
+  logo.className = "brando-logo";
+  logo.textContent = "B";
+  const text = document.createElement("span");
+  text.className = "brando-btn-text";
+  text.textContent = "Brando Summary";
+  btn.appendChild(logo);
+  btn.appendChild(text);
+  if (reviewCount > 0) {
+    const count = document.createElement("span");
+    count.className = "brando-review-count";
+    count.textContent = `${reviewCount} reviews`;
+    btn.appendChild(count);
+  }
   btn.title = "Summarize reviews with Brando AI";
   btn.addEventListener("click", handleBadgeClick);
 
@@ -605,10 +614,15 @@ async function handleBadgeClick() {
     btn.textContent = "Opening Brando...";
     btn.disabled = true;
     setTimeout(() => {
-      btn.innerHTML = `
-        <span class="brando-logo">B</span>
-        <span class="brando-btn-text">Brando Summary</span>
-      `;
+      btn.textContent = "";
+      const logo = document.createElement("span");
+      logo.className = "brando-logo";
+      logo.textContent = "B";
+      const text = document.createElement("span");
+      text.className = "brando-btn-text";
+      text.textContent = "Brando Summary";
+      btn.appendChild(logo);
+      btn.appendChild(text);
       btn.disabled = false;
     }, 2000);
   }
