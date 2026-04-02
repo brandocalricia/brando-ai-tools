@@ -329,6 +329,104 @@ function scrapeGenericProduct() {
   return { name, url: location.href };
 }
 
+// ── eBay scraper ─────────────────────────────────────────────────────────────
+
+function scrapeEbayReviews() {
+  const reviews = [];
+  const seen = new Set();
+  document.querySelectorAll('.x-review-section').forEach((section) => {
+    const rightCol = section.querySelector('.x-review-section__r');
+    if (!rightCol) return;
+    const text = rightCol.innerText.trim().substring(0, 500);
+    if (text.length > 20 && !seen.has(text)) {
+      seen.add(text);
+      reviews.push({ text, rating: null });
+    }
+  });
+  return reviews;
+}
+
+function scrapeEbayProduct() {
+  const name =
+    document.querySelector('h1.x-item-title__mainTitle span')?.innerText.trim() ||
+    document.querySelector('h1[itemprop="name"]')?.innerText.trim() ||
+    document.querySelector('h1')?.innerText.trim() ||
+    document.title;
+  return { name, url: location.href };
+}
+
+// ── Lowe's scraper ───────────────────────────────────────────────────────────
+
+function scrapeLowesReviews() {
+  const reviews = [];
+  const seen = new Set();
+  document.querySelectorAll('.review-row').forEach((row) => {
+    const text = row.innerText.trim().substring(0, 500);
+    // Filter out very short or boilerplate text
+    if (text.length > 30 && !seen.has(text)) {
+      seen.add(text);
+      reviews.push({ text, rating: null });
+    }
+  });
+  return reviews;
+}
+
+async function scrapeLowesReviewsAsync() {
+  // First check if reviews are already in the DOM
+  let reviews = scrapeLowesReviews();
+  if (reviews.length > 0) return reviews;
+
+  // Click the reviews accordion to expand it and load reviews
+  const accordion = document.querySelector('[data-testid="reviews-accordion"] button, [data-testid="reviews-accordion"]');
+  if (accordion) {
+    accordion.click();
+    // Wait for reviews to load
+    await new Promise((r) => setTimeout(r, 2000));
+    reviews = scrapeLowesReviews();
+  }
+  return reviews;
+}
+
+function scrapeLowesProduct() {
+  const name =
+    document.querySelector('h1[class*="productTitle"]')?.innerText.trim() ||
+    document.querySelector('h1')?.innerText.trim() ||
+    document.title;
+  return { name, url: location.href };
+}
+
+// ── Home Depot scraper ───────────────────────────────────────────────────────
+
+function scrapeHomeDepotReviews() {
+  const reviews = [];
+  const seen = new Set();
+  // Home Depot uses various review selectors depending on page version
+  const selectors = [
+    '.review-content', '.review_item', '[class*="review-body"]',
+    '[class*="ReviewBody"]', '[class*="review-text"]',
+  ];
+  for (const sel of selectors) {
+    document.querySelectorAll(sel).forEach((el) => {
+      const text = el.innerText.trim().substring(0, 500);
+      if (text.length > 20 && !seen.has(text)) {
+        seen.add(text);
+        reviews.push({ text, rating: null });
+      }
+    });
+    if (reviews.length > 0) break;
+  }
+  return reviews;
+}
+
+function scrapeHomeDepotProduct() {
+  const name =
+    document.querySelector('h1.product-title__title')?.innerText.trim() ||
+    document.querySelector('h1[class*="product"]')?.innerText.trim() ||
+    document.querySelector('h1')?.innerText.trim() ||
+    document.title;
+  return { name, url: location.href };
+}
+
 // ── Newegg scraper ───────────────────────────────────────────────────────────
 
 // Content scripts can't access window.__initialState__ (isolated world).
@@ -435,6 +533,9 @@ function scrapeAll(site) {
   if (site === "bestbuy") return { reviews: scrapeBestBuyReviews(), product: scrapeBestBuyProduct() };
   if (site === "walmart") return { reviews: scrapeWalmartReviews(), product: scrapeWalmartProduct() };
   if (site === "newegg") return { reviews: scrapeNeweggReviews(), product: scrapeNeweggProduct() };
+  if (site === "ebay") return { reviews: scrapeEbayReviews(), product: scrapeEbayProduct() };
+  if (site === "lowes") return { reviews: scrapeLowesReviews(), product: scrapeLowesProduct() };
+  if (site === "homedepot") return { reviews: scrapeHomeDepotReviews(), product: scrapeHomeDepotProduct() };
   // All other sites use generic scraper
   return { reviews: scrapeGenericReviews(), product: scrapeGenericProduct() };
 }
@@ -448,6 +549,9 @@ async function scrapeAllAsync(site) {
   }
   if (site === "newegg") {
     return { reviews: await scrapeNeweggReviewsAsync(), product: await scrapeNeweggProductAsync() };
+  }
+  if (site === "lowes") {
+    return { reviews: await scrapeLowesReviewsAsync(), product: scrapeLowesProduct() };
   }
   return scrapeAll(site);
 }
@@ -554,6 +658,22 @@ function extractSSRData() {
 
 async function scrollAndScrape() {
   const site = detectSite();
+
+  // Step 0: Try clicking review accordions/tabs to expand them
+  const accordionSelectors = [
+    '[data-testid="reviews-accordion"] button',
+    '[data-testid="reviews-accordion"]',
+    'button[aria-controls*="review"]',
+    '[class*="review"] button.accordion',
+    'a[href="#reviews"]',
+    'button:has(> span:contains("Reviews"))',
+  ];
+  for (const sel of accordionSelectors) {
+    try {
+      const el = document.querySelector(sel);
+      if (el) { el.click(); break; }
+    } catch {}
+  }
 
   // Step 1: Scroll progressively to trigger lazy-loading
   const scrollPositions = [0.3, 0.5, 0.7, 0.85, 1.0];

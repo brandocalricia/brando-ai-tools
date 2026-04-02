@@ -305,14 +305,28 @@ async function loadPageContext() {
               if (p) { const t = p.innerText.trim().substring(0, 500); if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); } }
             });
           }
+          // eBay reviews
+          if (reviews.length === 0 && location.hostname.includes("ebay.com")) {
+            document.querySelectorAll('.x-review-section').forEach((section) => {
+              const r = section.querySelector('.x-review-section__r');
+              if (r) { const t = r.innerText.trim().substring(0, 500); if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); } }
+            });
+          }
+          // Lowe's reviews (behind accordion, may already be expanded)
+          if (reviews.length === 0 && location.hostname.includes("lowes.com")) {
+            document.querySelectorAll('.review-row').forEach((row) => {
+              const t = row.innerText.trim().substring(0, 500);
+              if (t.length > 30 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); }
+            });
+          }
           // Generic reviews (skip bestbuy.com data-testid which grabs comparison cards)
           if (reviews.length === 0) {
             const host = location.hostname;
-            const sels = ['[itemprop="review"]', '[itemprop="reviewBody"]', '.review', '.customer-review', '.product-review', '[class*="review-text"]', '[class*="review-body"]'];
+            const sels = ['[itemprop="review"]', '[itemprop="reviewBody"]', '.review', '.customer-review', '.product-review', '[class*="review-text"]', '[class*="review-body"]', '.x-review-section'];
             if (!host.includes("bestbuy.com")) sels.push('[data-testid*="review"]');
             for (const sel of sels) {
               document.querySelectorAll(sel).forEach((el) => {
-                const t = (el.querySelector('[class*="body"], [class*="text"], p') || el).innerText.trim().substring(0, 500);
+                const t = (el.querySelector('[class*="body"], [class*="text"], [class*="__r"], p') || el).innerText.trim().substring(0, 500);
                 if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); }
               });
               if (reviews.length > 0) break;
