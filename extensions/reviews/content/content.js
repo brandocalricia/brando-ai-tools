@@ -24,7 +24,7 @@ function detectSite() {
 function isProductPage(site) {
   const path = location.pathname;
   if (site === "amazon") return /\/dp\/|\/gp\/product\//.test(path);
-  if (site === "bestbuy") return /\/site\//.test(path);
+  if (site === "bestbuy") return /\/site\/|\/product\//.test(path);
   if (site === "walmart") return /\/ip\//.test(path);
   if (site === "target") return /\/p\//.test(path);
   if (site === "newegg") return /\/p\/|\/Product\//.test(path);
@@ -119,18 +119,41 @@ function scrapeAmazonProduct() {
 
 function scrapeBestBuyReviews() {
   const reviews = [];
-  document.querySelectorAll(".review-item, [class*='ugc-review'], [class*='review-entry']").forEach((el) => {
-    const body =
-      el.querySelector(".pre-white-space, .ugc-review-body, p[class*='body']") ||
-      el.querySelector("p");
-    const rating = el.querySelector("[title*='out of 5'], .c-ratings-reviews-v4");
-    if (body) {
-      reviews.push({
-        text: body.innerText.trim().substring(0, 500),
-        rating: rating ? rating.getAttribute("title") || rating.innerText.trim() : null,
-      });
-    }
-  });
+  // Current Best Buy layout: #review-list > li
+  const reviewList = document.getElementById("review-list");
+  if (reviewList) {
+    reviewList.querySelectorAll(":scope > li").forEach((li) => {
+      // Review body is a <p> with id starting "ugc-line-clamp-reviews-" or class "body-copy-lg"
+      const body =
+        li.querySelector("p[id^='ugc-line-clamp-reviews']") ||
+        li.querySelector("div.relative p.body-copy-lg") ||
+        li.querySelector("p.body-copy-lg");
+      // Rating is in a sr-only span next to the stars icon
+      const ratingEl = li.querySelector("span.sr-only");
+      const ratingText = ratingEl ? ratingEl.innerText.trim() : null;
+      if (body) {
+        reviews.push({
+          text: body.innerText.trim().substring(0, 500),
+          rating: ratingText,
+        });
+      }
+    });
+  }
+  // Fallback: older layout or different page structure
+  if (reviews.length === 0) {
+    document.querySelectorAll(".review-item, [class*='ugc-review'], [class*='review-entry'], [data-testid='sku-review']").forEach((el) => {
+      const body =
+        el.querySelector(".pre-white-space, .ugc-review-body, p[class*='body']") ||
+        el.querySelector("p");
+      const rating = el.querySelector("[title*='out of 5'], .c-ratings-reviews-v4, span.sr-only");
+      if (body) {
+        reviews.push({
+          text: body.innerText.trim().substring(0, 500),
+          rating: rating ? rating.getAttribute("title") || rating.innerText.trim() : null,
+        });
+      }
+    });
+  }
   return reviews;
 }
 

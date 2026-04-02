@@ -213,7 +213,7 @@ function isKnownShoppingSite(url) {
   const patterns = [
     { host: "amazon.com", path: /\/dp\/|\/gp\/product\// },
     { host: "amazon.co", path: /\/dp\/|\/gp\/product\// },
-    { host: "bestbuy.com", path: /\/site\// },
+    { host: "bestbuy.com", path: /\/site\/|\/product\// },
     { host: "walmart.com", path: /\/ip\// },
     { host: "target.com", path: /\/p\// },
     { host: "newegg.com", path: /\/p\/|\/Product\// },
@@ -272,6 +272,20 @@ async function loadPageContext() {
             const agg = document.querySelector('#acrCustomerReviewText, [data-hook="total-review-count"]');
             const star = document.querySelector('#acrPopover .a-icon-alt, [data-hook="rating-out-of-text"]');
             if (agg) reviews.push({ text: `Overall: ${star ? star.innerText.trim() + " — " : ""}${agg.innerText.trim()}`, rating: star ? star.innerText.trim() : null });
+          }
+          // Best Buy reviews
+          if (reviews.length === 0) {
+            const rl = document.getElementById('review-list');
+            if (rl) {
+              rl.querySelectorAll(':scope > li').forEach((li) => {
+                const body = li.querySelector("p[id^='ugc-line-clamp-reviews']") || li.querySelector("p.body-copy-lg");
+                const ratingEl = li.querySelector("span.sr-only");
+                if (body) {
+                  const t = body.innerText.trim().substring(0, 500);
+                  if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: ratingEl ? ratingEl.innerText.trim() : null }); }
+                }
+              });
+            }
           }
           // Generic reviews
           if (reviews.length === 0) {
