@@ -329,11 +329,45 @@ function scrapeGenericProduct() {
   return { name, url: location.href };
 }
 
+// ── Newegg scraper ───────────────────────────────────────────────────────────
+
+function scrapeNeweggReviews() {
+  const reviews = [];
+  const seen = new Set();
+  // Newegg stores reviews in window.__initialState__ (SSR)
+  const state = window.__initialState__;
+  const list = state?.SyncLoadReviews?.SearchResult?.CustomerReviewList;
+  if (list && Array.isArray(list)) {
+    list.forEach((r) => {
+      const parts = [r.Comments, r.Pros ? "Pros: " + r.Pros : "", r.Cons ? "Cons: " + r.Cons : ""].filter(Boolean);
+      const text = parts.join(" ").trim().substring(0, 500);
+      if (text.length > 20 && !seen.has(text)) {
+        seen.add(text);
+        reviews.push({ text, rating: r.Rating ? String(r.Rating) : null });
+      }
+    });
+  }
+  return reviews;
+}
+
+function scrapeNeweggProduct() {
+  const state = window.__initialState__;
+  const name =
+    state?.ItemDetail?.ItemInfo?.Title ||
+    document.querySelector("h1.product-title")?.innerText.trim() ||
+    document.querySelector("h1")?.innerText.trim() ||
+    document.title;
+  return { name, url: location.href };
+}
+
+// ── scrapeAll ────────────────────────────────────────────────────────────────
+
 function scrapeAll(site) {
   if (site === "amazon") return { reviews: scrapeAmazonReviews(), product: scrapeAmazonProduct() };
   if (site === "bestbuy") return { reviews: scrapeBestBuyReviews(), product: scrapeBestBuyProduct() };
   if (site === "walmart") return { reviews: scrapeWalmartReviews(), product: scrapeWalmartProduct() };
-  // All other sites (including target, newegg, homedepot, lowes, ebay) use generic scraper
+  if (site === "newegg") return { reviews: scrapeNeweggReviews(), product: scrapeNeweggProduct() };
+  // All other sites use generic scraper
   return { reviews: scrapeGenericReviews(), product: scrapeGenericProduct() };
 }
 

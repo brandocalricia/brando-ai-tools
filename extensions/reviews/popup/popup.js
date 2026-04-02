@@ -282,6 +282,25 @@ async function loadPageContext() {
             const star = document.querySelector('#acrPopover .a-icon-alt, [data-hook="rating-out-of-text"]');
             if (agg) reviews.push({ text: `Overall: ${star ? star.innerText.trim() + " — " : ""}${agg.innerText.trim()}`, rating: star ? star.innerText.trim() : null });
           }
+          // Newegg: read from __initialState__ SSR data
+          if (reviews.length === 0 && window.__initialState__) {
+            const list = window.__initialState__?.SyncLoadReviews?.SearchResult?.CustomerReviewList;
+            if (list && Array.isArray(list)) {
+              list.forEach((r) => {
+                const parts = [r.Comments, r.Pros ? "Pros: " + r.Pros : "", r.Cons ? "Cons: " + r.Cons : ""].filter(Boolean);
+                const t = parts.join(" ").trim().substring(0, 500);
+                if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: r.Rating ? String(r.Rating) : null }); }
+              });
+              if (reviews.length > 0 && !name) name = window.__initialState__?.ItemDetail?.ItemInfo?.Title || document.title;
+            }
+          }
+          // Walmart: enhanced-review-content
+          if (reviews.length === 0) {
+            document.querySelectorAll('[data-testid="enhanced-review-content"]').forEach((el) => {
+              const p = el.querySelector("p");
+              if (p) { const t = p.innerText.trim().substring(0, 500); if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: null }); } }
+            });
+          }
           // Generic reviews (skip bestbuy.com data-testid which grabs comparison cards)
           if (reviews.length === 0) {
             const host = location.hostname;
