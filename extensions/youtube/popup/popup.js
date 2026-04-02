@@ -273,60 +273,83 @@ async function fetchTranscriptClientSide(videoId) {
     }
   } catch {}
 
-  // Method 3: Inject script to read timedtext URL from performance entries
+  // Method 3: Enable CC to trigger caption loading, then read from performance entries
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab && tab.url && tab.url.includes("youtube.com")) {
-      const results = await chrome.scripting.executeScript({
+      // First enable CC to force YouTube to load captions
+      await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: "MAIN",
-        func: (vid) => {
-          return new Promise((resolve) => {
-            function tryExtract() {
-              const entries = performance.getEntriesByType("resource");
-              const ttEntry = entries.find(e => e.name.includes("/api/timedtext") && e.name.includes("v="));
-              if (!ttEntry) return null;
-              return ttEntry.name;
-            }
-
-            const url = tryExtract();
-            if (!url) { resolve(null); return; }
-
-            fetch(url)
-              .then(r => r.text())
-              .then(text => {
-                try {
-                  const data = JSON.parse(text);
-                  const snippets = [];
-                  for (const event of (data.events || [])) {
-                    for (const seg of (event.segs || [])) {
-                      const t = (seg.utf8 || "").trim();
-                      if (t && t !== "\n") snippets.push(t);
-                    }
-                  }
-                  resolve(snippets.length > 0 ? snippets.join(" ") : null);
-                } catch {
-                  // Try XML
-                  const matches = text.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
-                  const snippets = [];
-                  for (const tag of matches) {
-                    const inner = tag.replace(/<[^>]+>/g, "")
-                      .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
-                      .replace(/&gt;/g, ">").replace(/&#39;/g, "'")
-                      .replace(/&quot;/g, '"').trim();
-                    if (inner) snippets.push(inner);
-                  }
-                  resolve(snippets.length > 0 ? snippets.join(" ") : null);
-                }
-              })
-              .catch(() => resolve(null));
-          });
+        func: () => {
+          const ccBtn = document.querySelector(".ytp-subtitles-button");
+          if (ccBtn && ccBtn.getAttribute("aria-pressed") !== "true") {
+            ccBtn.click();
+          }
+          // Make sure video is playing so captions actually load
+          const video = document.querySelector("video");
+          if (video && video.paused) video.play();
         },
-        args: [videoId],
       });
 
-      const transcript = results?.[0]?.result;
-      if (transcript && transcript.length > 50) return transcript;
+      // Poll performance entries for up to 8 seconds waiting for timedtext to appear
+      for (let attempt = 0; attempt < 16; attempt++) {
+        await new Promise((r) => setTimeout(r, 500));
+
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: () => {
+            return new Promise((resolve) => {
+              const entries = performance.getEntriesByType("resource");
+              const ttEntry = entries.find(e => e.name.includes("/api/timedtext") && e.name.includes("v="));
+              if (!ttEntry) { resolve(null); return; }
+
+              fetch(ttEntry.name)
+                .then(r => r.text())
+                .then(text => {
+                  try {
+                    const data = JSON.parse(text);
+                    const snippets = [];
+                    for (const event of (data.events || [])) {
+                      for (const seg of (event.segs || [])) {
+                        const t = (seg.utf8 || "").trim();
+                        if (t && t !== "\n") snippets.push(t);
+                      }
+                    }
+                    resolve(snippets.length > 0 ? snippets.join(" ") : null);
+                  } catch {
+                    const matches = text.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
+                    const snippets = [];
+                    for (const tag of matches) {
+                      const inner = tag.replace(/<[^>]+>/g, "")
+                        .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+                        .replace(/&gt;/g, ">").replace(/&#39;/g, "'")
+                        .replace(/&quot;/g, '"').trim();
+                      if (inner) snippets.push(inner);
+                    }
+                    resolve(snippets.length > 0 ? snippets.join(" ") : null);
+                  }
+                })
+                .catch(() => resolve(null));
+            });
+          },
+        });
+
+        const transcript = results?.[0]?.result;
+        if (transcript && transcript.length > 50) {
+          // Turn CC back off
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            world: "MAIN",
+            func: () => {
+              const ccBtn = document.querySelector(".ytp-subtitles-button");
+              if (ccBtn && ccBtn.getAttribute("aria-pressed") === "true") ccBtn.click();
+            },
+          });
+          return transcript;
+        }
+      }
     }
   } catch (e) {
     console.warn("Performance entries method failed:", e);
