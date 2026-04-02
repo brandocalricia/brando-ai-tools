@@ -255,7 +255,38 @@ async function loadPageContext() {
       }
     } catch {}
 
-    // ── Method 2: Inject sync scraper for sites where content script didn't run ──
+    // ── Method 2a: MAIN world script for sites with SSR data (Newegg etc.) ──
+    if (tab.url.includes("newegg.com")) {
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: () => {
+            const s = window.__initialState__;
+            const list = s && s.SyncLoadReviews && s.SyncLoadReviews.SearchResult && s.SyncLoadReviews.SearchResult.CustomerReviewList;
+            const title = (s && s.ItemDetail && s.ItemDetail.ItemInfo && s.ItemDetail.ItemInfo.Title) || document.title;
+            const reviews = [];
+            if (list && Array.isArray(list)) {
+              const seen = new Set();
+              list.forEach((r) => {
+                const parts = [r.Comments, r.Pros ? "Pros: " + r.Pros : "", r.Cons ? "Cons: " + r.Cons : ""].filter(Boolean);
+                const t = parts.join(" ").trim().substring(0, 500);
+                if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: r.Rating ? String(r.Rating) : null }); }
+              });
+            }
+            return { product: { name: title, url: location.href }, reviews };
+          },
+        });
+        if (results && results[0]?.result?.reviews?.length > 0) {
+          lastReviews = results[0].result.reviews;
+          lastProductInfo = results[0].result.product;
+          showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+          return;
+        }
+      } catch {}
+    }
+
+    // ── Method 2b: Inject sync scraper for sites where content script didn't run ──
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -282,16 +313,20 @@ async function loadPageContext() {
             const star = document.querySelector('#acrPopover .a-icon-alt, [data-hook="rating-out-of-text"]');
             if (agg) reviews.push({ text: `Overall: ${star ? star.innerText.trim() + " — " : ""}${agg.innerText.trim()}`, rating: star ? star.innerText.trim() : null });
           }
-          // Newegg: read from __initialState__ SSR data
-          if (reviews.length === 0 && window.__initialState__) {
-            const list = window.__initialState__?.SyncLoadReviews?.SearchResult?.CustomerReviewList;
-            if (list && Array.isArray(list)) {
-              list.forEach((r) => {
-                const parts = [r.Comments, r.Pros ? "Pros: " + r.Pros : "", r.Cons ? "Cons: " + r.Cons : ""].filter(Boolean);
-                const t = parts.join(" ").trim().substring(0, 500);
-                if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: r.Rating ? String(r.Rating) : null }); }
-              });
-              if (reviews.length > 0 && !name) name = window.__initialState__?.ItemDetail?.ItemInfo?.Title || document.title;
+          // Newegg: read from bridge element (content script may have injected it)
+          if (reviews.length === 0) {
+            const ssrEl = document.getElementById("brando-ssr-data");
+            if (ssrEl) {
+              try {
+                const data = JSON.parse(ssrEl.textContent);
+                if (data.reviews && Array.isArray(data.reviews)) {
+                  data.reviews.forEach((r) => {
+                    const parts = [r.Comments, r.Pros ? "Pros: " + r.Pros : "", r.Cons ? "Cons: " + r.Cons : ""].filter(Boolean);
+                    const t = parts.join(" ").trim().substring(0, 500);
+                    if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: r.Rating ? String(r.Rating) : null }); }
+                  });
+                }
+              } catch {}
             }
           }
           // Walmart: enhanced-review-content

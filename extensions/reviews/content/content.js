@@ -331,12 +331,40 @@ function scrapeGenericProduct() {
 
 // ── Newegg scraper ───────────────────────────────────────────────────────────
 
-function scrapeNeweggReviews() {
+// Content scripts can't access window.__initialState__ (isolated world).
+// Bridge: inject a <script> that reads it and writes to a hidden DOM element.
+function extractNeweggSSRData() {
+  return new Promise((resolve) => {
+    const el = document.getElementById("brando-ssr-data");
+    if (el) { resolve(el.textContent); return; }
+
+    const script = document.createElement("script");
+    script.textContent = `
+      (function() {
+        var s = window.__initialState__;
+        var list = s && s.SyncLoadReviews && s.SyncLoadReviews.SearchResult && s.SyncLoadReviews.SearchResult.CustomerReviewList;
+        var title = s && s.ItemDetail && s.ItemDetail.ItemInfo && s.ItemDetail.ItemInfo.Title;
+        var el = document.createElement("div");
+        el.id = "brando-ssr-data";
+        el.style.display = "none";
+        el.textContent = JSON.stringify({ reviews: list || [], title: title || "" });
+        document.body.appendChild(el);
+      })();
+    `;
+    document.documentElement.appendChild(script);
+    script.remove();
+
+    // Read back from the DOM element
+    setTimeout(() => {
+      const dataEl = document.getElementById("brando-ssr-data");
+      resolve(dataEl ? dataEl.textContent : "{}");
+    }, 50);
+  });
+}
+
+function parseNeweggReviews(list) {
   const reviews = [];
   const seen = new Set();
-  // Newegg stores reviews in window.__initialState__ (SSR)
-  const state = window.__initialState__;
-  const list = state?.SyncLoadReviews?.SearchResult?.CustomerReviewList;
   if (list && Array.isArray(list)) {
     list.forEach((r) => {
       const parts = [r.Comments, r.Pros ? "Pros: " + r.Pros : "", r.Cons ? "Cons: " + r.Cons : ""].filter(Boolean);
@@ -350,10 +378,50 @@ function scrapeNeweggReviews() {
   return reviews;
 }
 
-function scrapeNeweggProduct() {
-  const state = window.__initialState__;
+async function scrapeNeweggReviewsAsync() {
+  const raw = await extractNeweggSSRData();
+  try {
+    const data = JSON.parse(raw);
+    return parseNeweggReviews(data.reviews);
+  } catch {
+    return [];
+  }
+}
+
+function scrapeNeweggReviews() {
+  // Sync fallback: try reading from the bridge element if it already exists
+  const el = document.getElementById("brando-ssr-data");
+  if (el) {
+    try {
+      const data = JSON.parse(el.textContent);
+      return parseNeweggReviews(data.reviews);
+    } catch {}
+  }
+  return [];
+}
+
+async function scrapeNeweggProductAsync() {
+  const raw = await extractNeweggSSRData();
+  try {
+    const data = JSON.parse(raw);
+    if (data.title) return { name: data.title, url: location.href };
+  } catch {}
   const name =
-    state?.ItemDetail?.ItemInfo?.Title ||
+    document.querySelector("h1.product-title")?.innerText.trim() ||
+    document.querySelector("h1")?.innerText.trim() ||
+    document.title;
+  return { name, url: location.href };
+}
+
+function scrapeNeweggProduct() {
+  const el = document.getElementById("brando-ssr-data");
+  if (el) {
+    try {
+      const data = JSON.parse(el.textContent);
+      if (data.title) return { name: data.title, url: location.href };
+    } catch {}
+  }
+  const name =
     document.querySelector("h1.product-title")?.innerText.trim() ||
     document.querySelector("h1")?.innerText.trim() ||
     document.title;
@@ -377,6 +445,9 @@ async function scrapeAllAsync(site) {
   }
   if (site === "walmart") {
     return { reviews: await scrapeWalmartReviewsAsync(), product: scrapeWalmartProduct() };
+  }
+  if (site === "newegg") {
+    return { reviews: await scrapeNeweggReviewsAsync(), product: await scrapeNeweggProductAsync() };
   }
   return scrapeAll(site);
 }
