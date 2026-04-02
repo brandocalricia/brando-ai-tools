@@ -374,14 +374,28 @@ function scrapeLowesReviews() {
 async function scrapeLowesReviewsAsync() {
   // First check if reviews are already in the DOM
   let reviews = scrapeLowesReviews();
-  if (reviews.length > 0) return reviews;
+  if (reviews.length > 3) return reviews;
 
   // Click the reviews accordion to expand it and load reviews
-  const accordion = document.querySelector('[data-testid="reviews-accordion"] button, [data-testid="reviews-accordion"]');
-  if (accordion) {
-    accordion.click();
-    // Wait for reviews to load
-    await new Promise((r) => setTimeout(r, 2000));
+  const accordionWrapper = document.querySelector('[data-testid="reviews-accordion"]');
+  if (accordionWrapper) {
+    // Must scroll into view first, then click the button inside
+    accordionWrapper.scrollIntoView({ behavior: "instant" });
+    await new Promise((r) => setTimeout(r, 300));
+    const btn = accordionWrapper.querySelector("button.accordion-header");
+    if (btn && btn.classList.contains("closed")) {
+      btn.click();
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+
+    // Click "Show 10 More" buttons to load more reviews (up to 3 clicks = ~34 reviews)
+    for (let i = 0; i < 3; i++) {
+      const showMore = [...accordionWrapper.querySelectorAll("button")].find((b) => /show.*more/i.test(b.innerText));
+      if (!showMore) break;
+      showMore.click();
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+
     reviews = scrapeLowesReviews();
   }
   return reviews;
