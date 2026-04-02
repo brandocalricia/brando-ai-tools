@@ -233,37 +233,82 @@ async function loadPageContext() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url) return showNoProduct();
 
-    // Method 0: Read from chrome.storage (content script already scraped on page load)
-    try {
-      const stored = await chrome.storage.local.get(["scrapedReviews", "scrapedProduct", "scrapedSite", "scrapedUrl"]);
-      if (stored.scrapedUrl && stored.scrapedProduct && tab.url.includes(new URL(stored.scrapedUrl).pathname.split("/").slice(0, 4).join("/"))) {
-        lastReviews = stored.scrapedReviews || [];
-        lastProductInfo = stored.scrapedProduct;
-        if (lastReviews.length > 0) {
+    const isBestBuy = tab.url.includes("bestbuy.com") && /\/product\/|\/site\//.test(tab.url);
+
+    // ── Best Buy: dedicated fetch path (reviews are lazy-loaded) ──
+    if (isBestBuy) {
+      // Get product name + kick off reviews fetch, writing result to chrome.storage
+      const startTime = Date.now();
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (ts) => {
+            const name =
+              document.querySelector(".sku-title h1")?.innerText?.trim() ||
+              document.querySelector("h1")?.innerText?.trim() ||
+              document.title;
+            chrome.storage.local.set({ bb_product: { name, url: location.href }, bb_ts: ts });
+            // Fetch the reviews page and store results
+            const baseUrl = location.href.replace(/#.*$/, "").replace(/\/reviews.*$/, "");
+            fetch(baseUrl + "/reviews?pageSize=20")
+              .then(r => r.text())
+              .then(html => {
+                const doc = new DOMParser().parseFromString(html, "text/html");
+                const list = doc.getElementById("stand-alone-review-list") || doc.getElementById("review-list");
+                const reviews = [];
+                if (list) {
+                  list.querySelectorAll(":scope > li").forEach(li => {
+                    const body = li.querySelector("p[id^='ugc-line-clamp']") || li.querySelector("p.body-copy-lg");
+                    const ratingEl = li.querySelector("span.sr-only");
+                    if (body) {
+                      const t = (body.textContent || body.innerText || "").trim().substring(0, 500);
+                      if (t.length > 20) reviews.push({ text: t, rating: ratingEl ? ratingEl.textContent.trim() : null });
+                    }
+                  });
+                }
+                chrome.storage.local.set({ bb_reviews: reviews, bb_done: ts });
+              })
+              .catch(() => { chrome.storage.local.set({ bb_reviews: [], bb_done: ts }); });
+          },
+          args: [startTime],
+        });
+      } catch {}
+
+      // Poll chrome.storage until the fetch completes (up to 6s)
+      for (let i = 0; i < 12; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        const stored = await chrome.storage.local.get(["bb_reviews", "bb_product", "bb_done", "bb_ts"]);
+        if (stored.bb_done === startTime && stored.bb_reviews) {
+          lastReviews = stored.bb_reviews;
+          lastProductInfo = stored.bb_product;
           showProductInfo(lastProductInfo, tab.url, lastReviews.length);
           return;
         }
       }
-    } catch {}
+      // Timeout — show product with whatever we have
+      const stored = await chrome.storage.local.get(["bb_product"]);
+      if (stored.bb_product) {
+        lastProductInfo = stored.bb_product;
+        lastReviews = [];
+        showProductInfo(lastProductInfo, tab.url, 0);
+        return;
+      }
+    }
 
-    // Method 1: Try content script message (re-scrape)
-    let needsMoreReviews = false;
+    // ── All other sites ──
+
+    // Method 1: Try content script message
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_REVIEWS" });
       if (response && response.product) {
         lastReviews = response.reviews || [];
         lastProductInfo = response.product;
-        // If Best Buy returned few reviews, try Method 2 for more (lazy-loaded reviews)
-        if (tab.url.includes("bestbuy.com") && lastReviews.length <= 5) {
-          needsMoreReviews = true;
-        } else {
-          showProductInfo(lastProductInfo, tab.url, lastReviews.length);
-          return;
-        }
+        showProductInfo(lastProductInfo, tab.url, lastReviews.length);
+        return;
       }
     } catch {}
 
-    // Method 2: Inject a scraper via chrome.scripting (sync DOM scraping only — no async)
+    // Method 2: Inject sync scraper via chrome.scripting
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -272,13 +317,11 @@ async function loadPageContext() {
             document.querySelector('[itemprop="name"]')?.innerText?.trim() ||
             document.querySelector('meta[property="og:title"]')?.getAttribute("content") ||
             document.getElementById("productTitle")?.innerText?.trim() ||
-            document.querySelector(".sku-title h1")?.innerText?.trim() ||
             document.querySelector("h1")?.innerText?.trim() ||
             document.title;
 
           const reviews = [];
           const seen = new Set();
-          const isBestBuy = location.hostname.includes("bestbuy.com");
 
           // Amazon reviews
           document.querySelectorAll('[data-hook="review"]').forEach((el) => {
@@ -293,24 +336,8 @@ async function loadPageContext() {
             const star = document.querySelector('#acrPopover .a-icon-alt, [data-hook="rating-out-of-text"]');
             if (agg) reviews.push({ text: `Overall: ${star ? star.innerText.trim() + " — " : ""}${agg.innerText.trim()}`, rating: star ? star.innerText.trim() : null });
           }
-          // Best Buy reviews — sync DOM scraping only (async fetch handled by content script)
-          if (reviews.length === 0 && isBestBuy) {
-            const lists = [document.getElementById("stand-alone-review-list"), document.getElementById("review-list")];
-            for (const list of lists) {
-              if (!list) continue;
-              list.querySelectorAll(":scope > li").forEach((li) => {
-                const body = li.querySelector("p[id^='ugc-line-clamp']") || li.querySelector("p.body-copy-lg");
-                const ratingEl = li.querySelector("span.sr-only");
-                if (body) {
-                  const t = body.innerText.trim().substring(0, 500);
-                  if (t.length > 20 && !seen.has(t)) { seen.add(t); reviews.push({ text: t, rating: ratingEl ? ratingEl.innerText.trim() : null }); }
-                }
-              });
-              if (reviews.length > 0) break;
-            }
-          }
-          // Generic reviews (skip on Best Buy — data-testid="sku-review" are comparison cards, not reviews)
-          if (reviews.length === 0 && !isBestBuy) {
+          // Generic reviews
+          if (reviews.length === 0) {
             const sels = ['[itemprop="review"]', '[itemprop="reviewBody"]', '.review', '.customer-review', '.product-review', '[class*="review-text"]', '[class*="review-body"]', '[data-testid*="review"]'];
             for (const sel of sels) {
               document.querySelectorAll(sel).forEach((el) => {
@@ -325,21 +352,12 @@ async function loadPageContext() {
       });
       if (results && results[0]?.result?.product) {
         const data = results[0].result;
-        // Only use Method 2 results if they're better than what Method 1 found
-        if (!needsMoreReviews || (data.reviews || []).length > (lastReviews || []).length) {
-          lastReviews = data.reviews || [];
-          lastProductInfo = data.product;
-        }
+        lastReviews = data.reviews || [];
+        lastProductInfo = data.product;
         showProductInfo(lastProductInfo, tab.url, lastReviews.length);
         return;
       }
     } catch {}
-
-    // If Method 1 found some reviews (needsMoreReviews), show what we have
-    if (needsMoreReviews && lastReviews && lastReviews.length > 0) {
-      showProductInfo(lastProductInfo, tab.url, lastReviews.length);
-      return;
-    }
 
     // Method 3: If it's a known shopping site, show product info anyway
     if (isKnownShoppingSite(tab.url)) {
