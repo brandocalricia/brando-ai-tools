@@ -5,7 +5,7 @@ chrome.runtime.onInstalled.addListener((details) => {
       usageDate: new Date().toDateString(),
       isPro: false,
     });
-    console.log("Brando for Job Search installed.");
+    chrome.tabs.create({ url: chrome.runtime.getURL("onboarding/onboarding.html") });
   }
 });
 

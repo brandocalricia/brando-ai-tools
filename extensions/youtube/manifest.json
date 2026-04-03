@@ -23,6 +23,10 @@
     }
   ],
   "background": { "service_worker": "background/service-worker.js" },
+  "web_accessible_resources": [{
+    "resources": ["onboarding/onboarding.html"],
+    "matches": ["<all_urls>"]
+  }],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self';"
   },

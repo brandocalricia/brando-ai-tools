@@ -112,9 +112,37 @@
 
       <div id="upgrade-prompt" class="upgrade-prompt hidden">
         <p>You've used all 3 free analyses today.</p>
-        <button id="upgrade-btn" class="btn-upgrade">Upgrade Job Search Pro — $3.99/mo</button>
-        <button id="bundle-btn" class="btn-bundle">Get all 5 Brando tools — $14.99/mo</button>
-        <span class="upgrade-sub">Save 25% with the bundle vs buying individually</span>
+        <div class="pricing-columns">
+          <div class="pricing-col">
+            <div class="pricing-col-header">Monthly</div>
+            <div class="pricing-col-price">$3.99/mo</div>
+            <button class="btn-upgrade" data-ext="jobs" data-period="monthly">Upgrade</button>
+          </div>
+          <div class="pricing-col pricing-col-highlight">
+            <div class="pricing-save-badge">Save 25%</div>
+            <div class="pricing-col-header">Yearly</div>
+            <div class="pricing-col-price">$35.88/yr</div>
+            <div class="pricing-col-sub">($2.99/mo)</div>
+            <button class="btn-upgrade" data-ext="jobs" data-period="annual">Upgrade</button>
+          </div>
+        </div>
+        <div class="pricing-bundle-divider">or get everything</div>
+        <div class="pricing-bundle-info">All 5 Brando tools</div>
+        <div class="pricing-bundle-prices">$14.99/mo · $134.88/yr (save 25%)</div>
+        <div class="pricing-bundle-buttons">
+          <button class="btn-bundle" data-ext="bundle" data-period="monthly">Monthly</button>
+          <button class="btn-bundle" data-ext="bundle" data-period="annual">Yearly</button>
+        </div>
+        <span class="upgrade-sub">Cancel anytime.</span>
+      </div>
+
+      <div id="review-prompt" class="review-prompt hidden">
+        <p class="review-title">Enjoying Brando?</p>
+        <p class="review-desc">You've used this tool 10 times! A quick rating helps others find it.</p>
+        <div class="review-buttons">
+          <button id="review-rate-btn" class="btn-upgrade">Rate on Chrome Web Store</button>
+          <button id="review-dismiss-btn" class="btn-bundle">Not now</button>
+        </div>
       </div>
 
       <div class="footer">

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Welcome to Brando for Job Search</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #fff; color: #1a1a1a; min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+}
+.container {
+  max-width: 520px; width: 100%; padding: 48px 32px; text-align: center;
+}
+.steps {
+  display: flex; justify-content: center; gap: 8px; margin-bottom: 40px;
+}
+.step-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #ddd; transition: background 0.3s;
+}
+.step-dot.active { background: #00897b; }
+.step-dot.done { background: #00897b; }
+.step-content {
+  display: none; animation: fadeIn 0.3s ease;
+}
+.step-content.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+h1 {
+  font-size: 26px; font-weight: 700; color: #1a1a1a; margin-bottom: 12px;
+}
+h1 span { color: #00897b; }
+p {
+  font-size: 15px; color: #555; line-height: 1.6; margin-bottom: 24px;
+}
+.btn-primary {
+  display: inline-block; padding: 12px 32px; background: #00897b; color: #fff;
+  border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
+  cursor: pointer; transition: background 0.15s;
+}
+.btn-primary:hover { background: #00695c; }
+.btn-secondary {
+  display: inline-block; padding: 10px 24px; background: #fff; color: #00897b;
+  border: 1px solid #00897b; border-radius: 8px; font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: background 0.15s; margin-left: 10px;
+}
+.btn-secondary:hover { background: #e0f2f1; }
+.link-skip {
+  display: block; margin-top: 16px; font-size: 13px; color: #999;
+  text-decoration: none; cursor: pointer;
+}
+.link-skip:hover { color: #666; }
+.toolbar-hint {
+  display: inline-block; margin: 20px 0; padding: 12px 20px;
+  background: #f5f5f5; border-radius: 8px; font-size: 13px; color: #666;
+}
+.toolbar-hint strong { color: #1a1a1a; }
+.pricing-info {
+  background: #f8f9fa; border-radius: 10px; padding: 20px; margin-bottom: 24px;
+  text-align: left;
+}
+.pricing-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0; font-size: 14px;
+}
+.pricing-row + .pricing-row { border-top: 1px solid #eee; }
+.pricing-label { color: #555; }
+.pricing-value { font-weight: 600; color: #1a1a1a; }
+.pricing-value small { font-weight: 400; color: #888; }
+.buttons-row {
+  display: flex; justify-content: center; gap: 10px; margin-top: 8px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="steps">
+    <div class="step-dot active" id="dot-0"></div>
+    <div class="step-dot" id="dot-1"></div>
+    <div class="step-dot" id="dot-2"></div>
+  </div>
+
+  <div class="step-content active" id="step-0">
+    <h1>Welcome to <span>Brando</span></h1>
+    <p>Analyze job listings, extract skills, estimate salary, and match your resume.</p>
+    <div class="toolbar-hint">
+      Click the <strong>Brando icon</strong> in your Chrome toolbar to get started.
+      <br>If you don't see it, click the puzzle piece icon and pin Brando.
+    </div>
+    <br>
+    <button class="btn-primary" onclick="goTo(1)">Get started</button>
+  </div>
+
+  <div class="step-content" id="step-1">
+    <h1>Try your first <span>analysis</span></h1>
+    <p>Open a job listing on LinkedIn Jobs, Indeed, or Glassdoor and click the Brando icon.</p>
+    <div class="buttons-row">
+      <button class="btn-primary" onclick="window.open('https://www.linkedin.com/jobs/', '_blank'); window.close();">Take me there</button>
+      <button class="btn-secondary" onclick="goTo(2)">Skip</button>
+    </div>
+    <a class="link-skip" onclick="goTo(2)">I already know how</a>
+  </div>
+
+  <div class="step-content" id="step-2">
+    <h1>You're all set</h1>
+    <p>You get 3 free AI analyses per day. Upgrade anytime for unlimited use.</p>
+    <div class="pricing-info">
+      <div class="pricing-row">
+        <span class="pricing-label">Free</span>
+        <span class="pricing-value">3 analyses/day</span>
+      </div>
+      <div class="pricing-row">
+        <span class="pricing-label">Job Search Pro</span>
+        <span class="pricing-value">$3.99/mo <small>or $35.88/yr</small></span>
+      </div>
+      <div class="pricing-row">
+        <span class="pricing-label">All 5 Brando tools</span>
+        <span class="pricing-value">$14.99/mo <small>or $134.88/yr</small></span>
+      </div>
+    </div>
+    <div class="buttons-row">
+      <button class="btn-secondary" onclick="window.close();">Maybe later</button>
+      <button class="btn-primary" onclick="window.open('https://brando-ai-tools.bolt.host/#pricing', '_blank'); window.close();">See Pro plans</button>
+    </div>
+  </div>
+</div>
+<script>
+let currentStep = 0;
+function goTo(step) {
+  document.getElementById(`step-${currentStep}`).classList.remove("active");
+  document.getElementById(`dot-${currentStep}`).classList.remove("active");
+  document.getElementById(`dot-${currentStep}`).classList.add("done");
+  currentStep = step;
+  document.getElementById(`step-${currentStep}`).classList.add("active");
+  document.getElementById(`dot-${currentStep}`).classList.add("active");
+}
+</script>
+</body>
+</html>

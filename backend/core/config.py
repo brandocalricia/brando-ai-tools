@@ -31,6 +31,17 @@ STRIPE_PRICE_IDS = {
     "reviews": os.environ.get("STRIPE_PRICE_REVIEWS", ""),
     "bundle": os.environ.get("STRIPE_PRICE_BUNDLE", ""),
 }
+
+# Annual Stripe price IDs
+STRIPE_PRICE_IDS_ANNUAL = {
+    "linkedin": os.environ.get("STRIPE_PRICE_LINKEDIN_ANNUAL", ""),
+    "youtube": os.environ.get("STRIPE_PRICE_YOUTUBE_ANNUAL", ""),
+    "gmail": os.environ.get("STRIPE_PRICE_GMAIL_ANNUAL", ""),
+    "jobs": os.environ.get("STRIPE_PRICE_JOBS_ANNUAL", ""),
+    "reviews": os.environ.get("STRIPE_PRICE_REVIEWS_ANNUAL", ""),
+    "bundle": os.environ.get("STRIPE_PRICE_BUNDLE_ANNUAL", ""),
+}
+
 # Legacy fallback (used if individual prices aren't set yet)
 STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "")
 ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]

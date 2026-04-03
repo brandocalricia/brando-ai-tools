@@ -224,8 +224,12 @@ function setupButtons() {
   document.getElementById("generate-reply-btn").addEventListener("click", generateReply);
   document.getElementById("copy-btn").addEventListener("click", copyToClipboard);
   document.getElementById("regen-btn").addEventListener("click", regenerate);
-  document.getElementById("upgrade-btn")?.addEventListener("click", () => openUpgrade("linkedin"));
-  document.getElementById("bundle-btn")?.addEventListener("click", () => openUpgrade("bundle"));
+  document.querySelectorAll(".btn-upgrade[data-ext]").forEach((btn) => {
+    btn.addEventListener("click", () => openUpgrade(btn.dataset.ext, btn.dataset.period));
+  });
+  document.querySelectorAll(".btn-bundle[data-ext]").forEach((btn) => {
+    btn.addEventListener("click", () => openUpgrade(btn.dataset.ext, btn.dataset.period));
+  });
   document.getElementById("footer-upgrade").addEventListener("click", (e) => {
     e.preventDefault();
     openUpgrade("linkedin");
@@ -233,6 +237,15 @@ function setupButtons() {
   document.getElementById("footer-bundle").addEventListener("click", (e) => {
     e.preventDefault();
     openUpgrade("bundle");
+  });
+  document.getElementById("review-rate-btn").addEventListener("click", async () => {
+    chrome.tabs.create({ url: "https://chromewebstore.google.com/detail/EXTENSION_ID_PLACEHOLDER/reviews" });
+    await chrome.storage.local.set({ brando_review_prompted: true });
+    document.getElementById("review-prompt").classList.add("hidden");
+  });
+  document.getElementById("review-dismiss-btn").addEventListener("click", async () => {
+    await chrome.storage.local.set({ brando_review_prompted: true });
+    document.getElementById("review-prompt").classList.add("hidden");
   });
 }
 
@@ -333,6 +346,7 @@ async function callAPI(request) {
       usageToday = FREE_DAILY_LIMIT - data.usage_remaining;
     }
     updateUI();
+    await incrementAndCheckReview();
   } catch (err) {
     showError(err.message || "Failed to connect to server.");
   } finally {
@@ -397,7 +411,16 @@ async function copyToClipboard() {
   showToast("Copied!");
 }
 
-async function openUpgrade(extension = "linkedin") {
+async function incrementAndCheckReview() {
+  const stored = await chrome.storage.local.get(["brando_total_generations", "brando_review_prompted"]);
+  const total = (stored.brando_total_generations || 0) + 1;
+  await chrome.storage.local.set({ brando_total_generations: total });
+  if (total >= 10 && !stored.brando_review_prompted) {
+    document.getElementById("review-prompt").classList.remove("hidden");
+  }
+}
+
+async function openUpgrade(extension = "linkedin", billingPeriod = "monthly") {
   try {
     const res = await fetch(`${API_BASE}/create-checkout-session`, {
       method: "POST",
@@ -405,7 +428,7 @@ async function openUpgrade(extension = "linkedin") {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ extension }),
+      body: JSON.stringify({ extension, billing_period: billingPeriod }),
     });
     if (!res.ok) {
       const err = await res.json();

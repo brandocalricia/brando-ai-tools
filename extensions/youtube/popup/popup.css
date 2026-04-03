@@ -153,6 +153,44 @@ select {
 .btn-bundle:hover { background: #fff5f5; }
 .upgrade-sub { display: block; margin-top: 6px; font-size: 11px; color: #888; }
 
+.pricing-columns { display: flex; gap: 10px; margin-bottom: 12px; }
+.pricing-col {
+  flex: 1; padding: 14px 10px; border: 1px solid #ddd; border-radius: 8px;
+  text-align: center; position: relative;
+}
+.pricing-col-highlight {
+  border-color: #ff0000; background: #fff0f0;
+}
+.pricing-save-badge {
+  position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+  background: #ff0000; color: #fff; font-size: 10px; font-weight: 600;
+  padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+}
+.pricing-col-header { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.pricing-col-price { font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
+.pricing-col-sub { font-size: 11px; color: #888; margin-bottom: 6px; }
+.pricing-col .btn-upgrade { width: 100%; padding: 8px; font-size: 12px; }
+.pricing-bundle-divider {
+  display: flex; align-items: center; gap: 10px; font-size: 11px; color: #999;
+  margin: 10px 0;
+}
+.pricing-bundle-divider::before, .pricing-bundle-divider::after {
+  content: ''; flex: 1; border-top: 1px solid #ddd;
+}
+.pricing-bundle-info { font-size: 13px; font-weight: 600; color: #1a1a1a; margin-bottom: 2px; }
+.pricing-bundle-prices { font-size: 12px; color: #888; margin-bottom: 8px; }
+.pricing-bundle-buttons { display: flex; gap: 8px; }
+.pricing-bundle-buttons .btn-bundle { flex: 1; padding: 8px; font-size: 12px; }
+
+.review-prompt {
+  margin-top: 14px; padding: 16px; text-align: center;
+  background: #fff0f0; border: 1px solid #ffd0d0; border-radius: 8px;
+}
+.review-title { font-size: 14px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
+.review-desc { font-size: 12px; color: #555; margin-bottom: 12px; }
+.review-buttons { display: flex; gap: 8px; }
+.review-buttons .btn-upgrade, .review-buttons .btn-bundle { flex: 1; padding: 8px; font-size: 12px; }
+
 .footer {
   margin-top: 14px; padding-top: 10px; border-top: 1px solid #eee;
   display: flex; justify-content: space-between; align-items: center;
@@ -245,6 +283,18 @@ body.dark .btn-upgrade { background: #ff0000; }
 body.dark .btn-bundle { border-color: #ff4444; background: #1e1e1e; color: #ff4444; }
 body.dark .btn-bundle:hover { background: #3e1a1a; }
 body.dark .upgrade-sub { color: #777; }
+body.dark .pricing-col { border-color: #444; }
+body.dark .pricing-col-highlight { border-color: #ff4444; background: #3e1a1a; }
+body.dark .pricing-col-header { color: #999; }
+body.dark .pricing-col-price { color: #e0e0e0; }
+body.dark .pricing-col-sub { color: #777; }
+body.dark .pricing-bundle-divider { color: #666; }
+body.dark .pricing-bundle-divider::before, body.dark .pricing-bundle-divider::after { border-color: #444; }
+body.dark .pricing-bundle-info { color: #e0e0e0; }
+body.dark .pricing-bundle-prices { color: #777; }
+body.dark .review-prompt { background: #3e1a1a; border-color: #4e2a2a; }
+body.dark .review-title { color: #e0e0e0; }
+body.dark .review-desc { color: #999; }
 body.dark .footer { border-color: #333; }
 body.dark .footer-sep { color: #555; }
 body.dark .user-email { color: #777; }

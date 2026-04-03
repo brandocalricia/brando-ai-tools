@@ -15,7 +15,7 @@ from core.usage import get_usage_today
 from core.config import (
     SUPABASE_URL, SUPABASE_SERVICE_KEY,
     STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
-    STRIPE_PRICE_ID, STRIPE_PRICE_IDS, ALLOWED_ORIGINS,
+    STRIPE_PRICE_ID, STRIPE_PRICE_IDS, STRIPE_PRICE_IDS_ANNUAL, ALLOWED_ORIGINS,
     FREE_DAILY_LIMITS,
 )
 
@@ -191,6 +191,7 @@ async def me(user=Depends(get_current_user)):
 
 class CheckoutRequest(BaseModel):
     extension: str = "bundle"  # "linkedin", "youtube", "gmail", "jobs", "reviews", or "bundle"
+    billing_period: str = "monthly"  # "monthly" or "annual"
 
 
 @app.post("/create-checkout-session")
@@ -201,7 +202,12 @@ async def create_checkout_session(req: CheckoutRequest = CheckoutRequest(), user
         raise HTTPException(status_code=400, detail=f"Invalid extension. Choose from: {', '.join(valid_options)}")
 
     # Get the right Stripe price ID
-    price_id = STRIPE_PRICE_IDS.get(ext, "")
+    if req.billing_period == "annual":
+        price_id = STRIPE_PRICE_IDS_ANNUAL.get(ext, "")
+    else:
+        price_id = ""
+    if not price_id:
+        price_id = STRIPE_PRICE_IDS.get(ext, "")
     if not price_id:
         # Fallback to legacy single price ID
         price_id = STRIPE_PRICE_ID

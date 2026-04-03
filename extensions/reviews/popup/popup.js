@@ -490,8 +490,21 @@ function setupButtons() {
   document.getElementById("summarize-btn").addEventListener("click", summarizeReviews);
   document.getElementById("copy-btn").addEventListener("click", copyToClipboard);
   document.getElementById("regen-btn").addEventListener("click", summarizeReviews);
-  document.getElementById("upgrade-btn")?.addEventListener("click", () => openUpgrade("reviews"));
-  document.getElementById("bundle-btn")?.addEventListener("click", () => openUpgrade("bundle"));
+  document.querySelectorAll(".btn-upgrade[data-ext]").forEach((btn) => {
+    btn.addEventListener("click", () => openUpgrade(btn.dataset.ext, btn.dataset.period));
+  });
+  document.querySelectorAll(".btn-bundle[data-ext]").forEach((btn) => {
+    btn.addEventListener("click", () => openUpgrade(btn.dataset.ext, btn.dataset.period));
+  });
+  document.getElementById("review-rate-btn")?.addEventListener("click", () => {
+    chrome.tabs.create({ url: "https://chrome.google.com/webstore" });
+    document.getElementById("review-prompt").classList.add("hidden");
+    chrome.storage.local.set({ brando_review_prompted: true });
+  });
+  document.getElementById("review-dismiss-btn")?.addEventListener("click", () => {
+    document.getElementById("review-prompt").classList.add("hidden");
+    chrome.storage.local.set({ brando_review_prompted: true });
+  });
   document.getElementById("footer-upgrade").addEventListener("click", (e) => {
     e.preventDefault();
     openUpgrade("reviews");
@@ -577,6 +590,7 @@ async function summarizeReviews() {
     }
     renderSummary(data);
     updateUI();
+    await incrementAndCheckReview();
   } catch (err) {
     showError(err.message || "Failed to connect to server.");
   } finally {
@@ -666,7 +680,16 @@ function copyToClipboard() {
 
 // ── Upgrade ──────────────────────────────────────────────────────────────────
 
-async function openUpgrade(extension = "reviews") {
+async function incrementAndCheckReview() {
+  const stored = await chrome.storage.local.get(["brando_total_generations", "brando_review_prompted"]);
+  const total = (stored.brando_total_generations || 0) + 1;
+  await chrome.storage.local.set({ brando_total_generations: total });
+  if (total >= 10 && !stored.brando_review_prompted) {
+    document.getElementById("review-prompt").classList.remove("hidden");
+  }
+}
+
+async function openUpgrade(extension = "reviews", billingPeriod = "monthly") {
   try {
     const res = await fetch(`${API_BASE}/create-checkout-session`, {
       method: "POST",
@@ -674,7 +697,7 @@ async function openUpgrade(extension = "reviews") {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ extension }),
+      body: JSON.stringify({ extension, billing_period: billingPeriod }),
     });
     if (!res.ok) {
       const err = await res.json();

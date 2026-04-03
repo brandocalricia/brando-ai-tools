@@ -213,6 +213,69 @@ textarea:focus, input[type="text"]:focus, select:focus {
   display: block; margin-top: 6px; font-size: 10px; color: #999;
 }
 
+.pricing-columns {
+  display: flex; gap: 10px; margin-bottom: 12px;
+}
+.pricing-col {
+  flex: 1; padding: 12px; border: 1px solid #e0e0e0; border-radius: 8px;
+  text-align: center; position: relative;
+}
+.pricing-col-highlight {
+  border-color: #e47911; background: #fff5e6;
+}
+.pricing-save-badge {
+  position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+  background: #e47911; color: #fff; font-size: 10px; font-weight: 700;
+  padding: 2px 8px; border-radius: 8px; white-space: nowrap;
+}
+.pricing-col-header {
+  font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 4px; margin-top: 4px;
+}
+.pricing-col-price {
+  font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px;
+}
+.pricing-col-sub {
+  font-size: 11px; color: #888; margin-bottom: 8px;
+}
+.pricing-col .btn-upgrade {
+  width: 100%; padding: 8px; font-size: 12px;
+}
+.pricing-bundle-divider {
+  font-size: 11px; color: #999; text-align: center; margin: 8px 0;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.pricing-bundle-info {
+  font-size: 13px; font-weight: 600; color: #333; text-align: center;
+}
+.pricing-bundle-prices {
+  font-size: 12px; color: #666; text-align: center; margin-bottom: 8px;
+}
+.pricing-bundle-buttons {
+  display: flex; gap: 8px;
+}
+.pricing-bundle-buttons .btn-bundle {
+  flex: 1; padding: 8px; font-size: 12px; margin-top: 0;
+}
+
+.review-prompt {
+  margin-top: 12px; padding: 14px; background: #fff5e6;
+  border: 1px solid #ffe0b2; border-radius: 8px; text-align: center;
+}
+.review-title {
+  font-size: 14px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px;
+}
+.review-desc {
+  font-size: 12px; color: #555; margin-bottom: 12px;
+}
+.review-buttons {
+  display: flex; gap: 8px;
+}
+.review-buttons .btn-upgrade,
+.review-buttons .btn-bundle {
+  flex: 1; padding: 8px; font-size: 12px; margin-top: 0;
+}
+
 .brando-more {
   margin-top: 10px; padding-top: 8px; border-top: 1px solid #eee;
   text-align: center;
@@ -296,6 +359,18 @@ body.dark .user-email { color: #777; }
 body.dark .footer-upgrade { color: #ffb347; }
 body.dark .plan-label { color: #777; }
 body.dark .plan-label.pro { color: #ffb347; }
+body.dark .pricing-col { border-color: #444; }
+body.dark .pricing-col-highlight { border-color: #ffb347; background: #3e2a00; }
+body.dark .pricing-save-badge { background: #e47911; }
+body.dark .pricing-col-header { color: #999; }
+body.dark .pricing-col-price { color: #e0e0e0; }
+body.dark .pricing-col-sub { color: #777; }
+body.dark .pricing-bundle-divider { color: #777; }
+body.dark .pricing-bundle-info { color: #e0e0e0; }
+body.dark .pricing-bundle-prices { color: #999; }
+body.dark .review-prompt { background: #3e2a00; border-color: #4e3a10; }
+body.dark .review-title { color: #e0e0e0; }
+body.dark .review-desc { color: #999; }
 body.dark .brando-more { border-color: #333; }
 body.dark .brando-more span { color: #666; }
 body.dark .brando-links a { color: #ffb347; }

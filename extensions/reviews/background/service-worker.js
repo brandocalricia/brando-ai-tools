@@ -5,7 +5,7 @@ chrome.runtime.onInstalled.addListener((details) => {
       scrapedProduct: null,
       scrapedTabId: null,
     });
-    console.log("Brando for Shopping installed.");
+    chrome.tabs.create({ url: chrome.runtime.getURL("onboarding/onboarding.html") });
   }
 });
 
